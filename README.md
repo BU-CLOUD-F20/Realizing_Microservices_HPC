@@ -1,53 +1,16 @@
 # Realizing_Microservices_HPC
 Realizing Microservices and High Performance Computing
 
-Project Logistics:
-Mentors: Dan Lambright email: dlambrig@gmail.com
-Will the project be open source: yes
- 
-Preferred Past Experience:
-Kubernetes: Valuable
-Go: Valuable 
-Open Source Familiarity: Valuable 
+Team members: Athanasios Filippidis (aflpd@bu.edu), Nadim El Helou(nadimh@bu.edu), Anqi Guo(anqiguo@bu.edu), Danny Trinh(djtrinh@bu.edu), Jialun Wang(wjl1996@bu.edu)  
+Team mentor: Dan Lambright (dlambrig@gmail.com)
 
-Project Overview:
-Background: 
-
-This project is a continuation of work started in last year’s cloud computing course, which was presented at Linux Vault 2019. 
- 
-Lustre is a distributed file system used in high performance computing (HPC). Like other open source file systems (e.g. Ceph), it can run in Kubernetes, which extends it to the microservices world. This simplifies its management, as shown by students in the 2019 cloud computing course. Those students built the foundational infrastructure to package and start Lustre using “KubeVirt” (necessary to run virtual machines in containers- for Lustre’s kernel drivers). However, they did not automate the maintenance of Luster within Kubernetes. 
-
-In a microservices environment, certain operations should be seamless:
-When an instance of Lustre crashes, a new one should be created
-It should be easy to auto-scale the number of instances (up or down)
-Upgrading to new Luster code should be simple
-It should be manageable via a dashboard
-
-In short, Lustre should be a well-behaved microservice.
- 
-The students in the 2019 course showed Lustre had little performance degradation running in Kubevirt in containers. But they only experimented with a few nodes, and also did not have time to experiment with tools common in high performance computing, such as RDMA. This semester (time/resources permitting) the team will experiment with RDMA in Kubernetes. We will use the “freeflow” scheme developed at Microsoft. It removes the overhead of the “overlay network” used by containers. 
- 
-Project specifics: In this project you will write Go code to create “operators.” These are custom functions that are invoked when certain procedures are called in Kubernetes. Your code will be called, e.g. when a request is made to increase or decrease the number of nodes. 
-
-You will run Microsoft’s freeflow overlay network and experiment with RDMA. The Microsoft work is open source. This will reduce the overhead over the “overlay network”. This will eliminate one more barrier to running high performance computing workloads in a microservices environment. 
-
-More information:
-2019 github site
-2019 presentation at Vault conference
-Microsoft “Freeflow”
-Microsoft HPC container networking
-
-
-Some Technologies you will learn/use:
-Go programming
-microservices
-high performance computing problems
-Virtual networking / network overlay
 
 ## Project Description
 
 ## 1. Vision and Goals Of The Project:
-This project has many different and equally intriguing aspects. It can be thought of as the continuation of [last year’s students group](https://github.com/BU-NU-CLOUD-F19/Cloud-Native_high-performance_computing/). The first aspect is the automation of running [Lustre](https://wiki.lustre.org/Main_Page) in [Kubernetes](https://kubernetes.io/docs/concepts/overview/what-is-kubernetes/). Lustre is an open-source, distributed parallel file system designed for scalability, high-performance, and high-availability. In order to achieve this we will create Golang reconciler operators that will monitor the cluster and automatically scale Lustre based on different events as additions/removals of available instances or instances crashes. As we gain portability by using Kubernetes there will be a performance deterioration due to the overlay network (more about this in [Microsoft's Freeflow](https://github.com/microsoft/Freeflow)). We plan to tackle this by either utilizing remote direct memory access (RDMA) or by utilizing the same IPC namespace between different containers hosted in the same machine in order to have shared memory access between them. This will boost the communication latency and will hopefully overcome the portability overhead.
+This project has many different and equally intriguing aspects. It can be thought of as the continuation of [last year’s students group](https://github.com/BU-NU-CLOUD-F19/Cloud-Native_high-performance_computing/). The first aspect is the automation of running [Lustre](https://wiki.lustre.org/Main_Page) in [Kubernetes](https://kubernetes.io/docs/concepts/overview/what-is-kubernetes/). Lustre is an open-source, distributed parallel file system designed for scalability, high-performance, and high-availability. In order to achieve this we will create Golang reconciler operators that will monitor the cluster and automatically scale Lustre based on different events as additions/removals of available instances and will deal with nodes/processes crashes.
+
+As we gain the advantages of a Kubernetes managed cluster application there will be a performance deterioration due to the overlay network (more about this in [Microsoft's Freeflow](https://github.com/microsoft/Freeflow)). We plan to tackle this by either utilizing remote direct memory access (RDMA) or by utilizing the same IPC namespace between different containers hosted in the same machine in order to have shared memory access between them. This will boost the communication latency and will hopefully overcome the aforementioned overhead.
 
 ## 2. Users/Personas Of The Project:
 High Performance Computing (HPC) has previously been a tool solely for researchers and software developers. From protein folding simulations to climate predictions, HPC has since been brought to a broader range of customers due to the availability of AWS HPC, Microsoft Azure, IBM Cloud and supercomputing advancements. Cloud-native HPC’s primarily users fall within these several groups.
