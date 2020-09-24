@@ -57,12 +57,12 @@ Below is a description of the system components that are building blocks of the 
 - Kubernetes node: Worker machine in Kubernetes cluster. Each node contains kubelet (a component to make sure containers are running), container runtime, and kube-proxy (a node-level network proxy).
 - KubeVirt: To run and manage VMs as Kubernetes pods, and allow VMs to access pod networking and storage.
 - Lustre: Open-source, parallel distributed file system, which is generally used for high performance computing.
-- Operators: Custom “daemon” functions to monitor and make operations on Kubernetes nodes (e.g. create, destroy, restore, etc.).
+- Operators: Custom program controllers to monitor and make operations on Kubernetes nodes (e.g. create, destroy, restore, etc.).
 - Freeflow: High performance container overlay network. In our project, we may use it for RDMA communication, or learn from its concept to implement our memory sharing part.
 
 <img src="images/figure01.png?raw=true"/>
 
-**Figure 1** presents our global architectural design of this project. Lustre nodes running inside containerized KubeVirt virtual machines. Containers are managed in Kubernetes pods, and each Kubernetes node could contain multiple pods. The operator will automatically create or destroy Kubernetes nodes according to user demands, or will restore node when one crashes. In each MOC instance, there is a memory sharing module for nodes and containers.
+**Figure 1** presents our global architectural design of this project. Lustre nodes running inside containerized KubeVirt virtual machines. Containers are managed in Kubernetes pods, and each Kubernetes node could contain multiple pods. The operator will automatically create or destroy Kubernetes nodes according to user demands, or will restore node when one crashes. In each VM instance of MOC, there is a memory sharing module for nodes and containers.
 
 ## 5. Acceptance criteria
 The MVP is to set up Lustre and running on MOC with Kubernetes on multiple machines.
