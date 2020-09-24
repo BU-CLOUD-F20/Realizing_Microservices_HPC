@@ -1,9 +1,15 @@
 # Realizing_Microservices_HPC
 Realizing Microservices and High Performance Computing
 
-Team members: Athanasios Filippidis (aflpd@bu.edu), Nadim El Helou(nadimh@bu.edu), Anqi Guo(anqiguo@bu.edu), Danny Trinh(djtrinh@bu.edu), Jialun Wang(wjl1996@bu.edu)  
-Team mentor: Dan Lambright (dlambrig@gmail.com)
-
+|Team Mentor          |Email             |
+|---------------------|------------------|
+|Dan Lambright        |dlambrig@gmail.com|
+|<div align="center">**Team Members**</div>|<div align="center">**Email**</div>|
+|Athanasios Filippidis|aflpd@bu.edu      |
+|Nadim El Helou       |nadimh@bu.edu     |
+|Anqi Guo             |anqiguo@bu.edu    |
+|Danny Trinh          |djtrinh@bu.edu    |
+|Jialun Wang          |wjl1996@bu.edu    |
 
 ## Project Description
 
