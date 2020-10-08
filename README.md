@@ -69,7 +69,7 @@ The MVP is to set up Lustre and running on MOC with Kubernetes on multiple machi
 
 - Pick up previous work, adding and revoke Lustre components on the cloud system
 - Automate Lustre scaling by writing custom Golang operators for Kubernetes
-- Since MOC does not support RDMA, we can share memory between containers within the same machine. Doing software level RDMA simulation can be another choice.
+- With the support of CloudLab bare metal machine, do RDMA test and build Lustre on top of RDMA machine.
 
 ## 6. Release Planning:
 10/1/2020 **Demo 1**: Setup single instance on MOC
