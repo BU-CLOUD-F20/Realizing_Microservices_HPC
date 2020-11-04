@@ -3,7 +3,10 @@ package podset
 import (
 	"context"
 	"reflect"
-
+        "strings"
+        "fmt"
+	"strconv"
+		
 	appv1alpha1 "podset-operator/pkg/apis/app/v1alpha1"
 	
 	corev1 "k8s.io/api/core/v1"
@@ -19,6 +22,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+        k8sv1 "k8s.io/api/core/v1"
+        "k8s.io/apimachinery/pkg/api/resource"
+        "github.com/spf13/pflag"
+        k8smetav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+        "kubevirt.io/client-go/kubecli"
+        kubevirtv1 "kubevirt.io/client-go/api/v1"
+
 )
 
 var log = logf.Log.WithName("controller_podset")
@@ -83,6 +93,8 @@ type ReconcilePodSet struct {
 // Note:
 // The Controller will requeue the Request to be processed again if the returned error is non-nil or
 // Result.Requeue is true, otherwise upon completion it will remove the work from the queue.
+var vmCount int = 1
+
 func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result, error) {
 	reqLogger := log.WithValues("Request.Namespace", request.Namespace, "Request.Name", request.Name)
 	reqLogger.Info("Reconciling PodSet")
@@ -127,7 +139,25 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 			existingPodNames = append(existingPodNames, pod.GetObjectMeta().GetName())
 		}
 	}
-
+	// count oss eventually
+   	existingPodsTest := &corev1.PodList{}
+        r.client.List(context.TODO(),
+		existingPodsTest,
+		&client.ListOptions{
+			Namespace: "",
+		})
+	numOfVms := []string{}
+	// Count the pods that are pending or running as available
+	for _, pod := range existingPodsTest.Items {
+		if pod.GetObjectMeta().GetDeletionTimestamp() != nil {
+			continue
+		}
+                if (pod.Status.Phase == corev1.PodPending || pod.Status.Phase == corev1.PodRunning) && strings.HasPrefix(pod.GetObjectMeta().GetName(), `virt-launcher-testvm`) {
+		
+			numOfVms = append(numOfVms, pod.GetObjectMeta().GetName())
+		}
+	}
+	reqLogger.Info("Test", "All pods", numOfVms)
 	reqLogger.Info("Checking podset", "expected replicas", podSet.Spec.Replicas, "Pod.Names", existingPodNames)
 	// Update the status if necessary
 	status := appv1alpha1.PodSetStatus{
@@ -169,6 +199,15 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 			return reconcile.Result{}, err
 		}
 	}
+	// scale up vms
+	if int32(len(numOfVms)) < podSet.Spec.Replicas {
+	   testvm(`testvm`+strconv.Itoa(int(len(numOfVms))))
+	}
+	// scale down vms
+	if int32(len(numOfVms)) > podSet.Spec.Replicas {
+	   deleteTestvm(`testvm`+strconv.Itoa(int(len(numOfVms))-1))
+	}
+	   
 	return reconcile.Result{Requeue: true}, nil
 }
 
@@ -194,4 +233,92 @@ func newPodForCR(cr *appv1alpha1.PodSet) *corev1.Pod {
 			},
 		},
 	}
+}
+
+func testvm(name string) {
+        // kubecli.DefaultClientConfig() prepares config using kubeconfig.
+        // typically, you need to set env variable, KUBECONFIG=<path-to-kubeconfig>/.kubeconfig
+        clientConfig := kubecli.DefaultClientConfig(&pflag.FlagSet{})
+
+	// get the kubevirt client, using which kubevirt resources can be managed.
+        virtClient, err := kubecli.GetKubevirtClientFromClientConfig(clientConfig)
+        if err != nil {
+                fmt.Println("cannot obtain KubeVirt client: %v\n", err)
+        }
+
+	vm := kubevirtv1.NewMinimalVMI(name)
+        vm.Spec.Domain.Devices.Interfaces = [] kubevirtv1.Interface{
+                                kubevirtv1.Interface{
+                                        Name: "default",
+                                        InterfaceBindingMethod:  kubevirtv1.InterfaceBindingMethod{
+                                                Bridge: &kubevirtv1.InterfaceBridge{},
+                                        },
+                                },
+                        }
+        vm.Spec.Domain.Resources = kubevirtv1.ResourceRequirements{
+                        Requests: k8sv1.ResourceList{
+                                k8sv1.ResourceMemory: resource.MustParse("64M"),
+                        },
+        }
+	vm.Spec.Volumes = []kubevirtv1.Volume{
+                        {
+                                Name: "containerdisk",
+                                VolumeSource: kubevirtv1.VolumeSource{
+                                        ContainerDisk: &kubevirtv1.ContainerDiskSource{
+                                                Image: "kubevirt/cirros-registry-disk-demo",
+                                        },
+                                },
+                        },
+                        {
+                                Name: "cloudinitdisk",
+                                VolumeSource: kubevirtv1.VolumeSource{
+                                        CloudInitNoCloud: &kubevirtv1.CloudInitNoCloudSource{
+                                                UserDataBase64: `SGkuXG4=`,
+                                        },
+                                },
+
+                        },
+                }
+        vm.Spec.Networks = []kubevirtv1.Network{
+                        kubevirtv1.Network{
+                                Name: "default",
+                                NetworkSource: kubevirtv1.NetworkSource{
+                                        Pod: &kubevirtv1.PodNetwork{},
+                                },
+                        },
+                }
+ 	vm.Spec.Domain.Devices.Disks = []kubevirtv1.Disk{
+                        {
+                                Name: "containerdisk",
+                                DiskDevice: kubevirtv1.DiskDevice{
+                                        Disk: & kubevirtv1.DiskTarget{
+                                                Bus:	  "virtio",
+
+                                        },
+                                },
+                        },
+                        {
+                                Name: "cloudinitdisk",
+                                DiskDevice:  kubevirtv1.DiskDevice{
+                                        Disk: & kubevirtv1.DiskTarget{
+                                                Bus:	  "virtio",
+                                        },
+                                },
+                        },
+                 }
+        fetchedVMI, err := virtClient.VirtualMachineInstance(k8sv1.NamespaceDefault).Create(vm)
+        fmt.Println(fetchedVMI, err)
+}
+
+func deleteTestvm(name string) {
+        // kubecli.DefaultClientConfig() prepares config using kubeconfig.
+        // typically, you need to set env variable, KUBECONFIG=<path-to-kubeconfig>/.kubeconfig
+        clientConfig := kubecli.DefaultClientConfig(&pflag.FlagSet{})
+
+	// get the kubevirt client, using which kubevirt resources can be managed.
+        virtClient, err := kubecli.GetKubevirtClientFromClientConfig(clientConfig)
+        if err != nil {
+                fmt.Println("cannot obtain KubeVirt client: %v\n", err)
+        }
+	virtClient.VirtualMachineInstance(k8sv1.NamespaceDefault).Delete(name, &k8smetav1.DeleteOptions{})
 }
