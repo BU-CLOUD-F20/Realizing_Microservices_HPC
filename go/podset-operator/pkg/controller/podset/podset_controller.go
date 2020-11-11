@@ -202,7 +202,7 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 	// scale up vms
 	if podSet.Spec.Replicas <= 2 {
 	   if int32(len(numOfVms)) < podSet.Spec.Replicas {
-	      ossvm(`lustre-oss`+strconv.Itoa(int(len(numOfVms))))
+	      ossvm(`lustre-oss`+strconv.Itoa(int(len(numOfVms))), int(len(numOfVms)))
 	   }
 	}
 	// scale down vms
@@ -333,7 +333,7 @@ runcmd:
         fmt.Println(fetchedVMI, err)
 }
 
-func ossvm(name string) {
+func ossvm(name string, number int) {
         // kubecli.DefaultClientConfig() prepares config using kubeconfig.
         // typically, you need to set env variable, KUBECONFIG=<path-to-kubeconfig>/.kubeconfig
         clientConfig := kubecli.DefaultClientConfig(&pflag.FlagSet{})
@@ -360,18 +360,18 @@ func ossvm(name string) {
         }
 	vm.Spec.Volumes = []kubevirtv1.Volume{
                         {
-                                Name: `vol-oss1`,
+                                Name: `vol-oss`+strconv.Itoa(number*2+1),
                                 VolumeSource: kubevirtv1.VolumeSource{
                                         PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource {
-                                                ClaimName: `vol-oss1`,
+                                                ClaimName: `vol-oss`+strconv.Itoa(number*2+1) ,
                                         },
                                 },
                         },
                         {
-                                Name: `vol-oss2`,
+                                Name: `vol-oss`+strconv.Itoa(number*2+2),
                                 VolumeSource: kubevirtv1.VolumeSource{
                                         PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource {
-                                                ClaimName: `vol-oss2`,
+                                                ClaimName: `vol-oss`+strconv.Itoa(number*2+2),
                                         },
                                 },
                         },
@@ -387,9 +387,21 @@ func ossvm(name string) {
                                 Name: "cloudinitdisk",
                                 VolumeSource: kubevirtv1.VolumeSource{
                                         CloudInitNoCloud: &kubevirtv1.CloudInitNoCloudSource{
-                                                UserDataSecretRef: &corev1.LocalObjectReference{
-							Name: `vmi-lustre-oss-secret`,
-                                                },
+                                                UserData: `#cloud-config
+ssh_authorized_keys:
+  - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDAEIJZRVfM/sxhpR4jT6rwUNMZEarTPjhKDOn7ifZa+qa/4MHSCvcPvq0781zypZp6QnNW9WrALfsmi8QQg3P/74EHyNs/rBdFsKmvOsC//AcogRIynL+oR8AlLgs5fwntLEg3/6L9WLSimi5jjFF8QXMULtjfUypHA/6xvX/OHN+62D+ySYn9GeFFYeutUB+NLalvzsjlDTHt4dXmSy+wDM8tIetTIDuc2+yS6qv6tWiV1qaXCn3fHsKTZTnsNCcH9mVLv5CmIqkV/XpcbGqvn3unaBWn4uGwCyudjHM99HunCPbXBfJO4NiCxtFKVpV9wONC/se6KK32AUzd9q+ln3uNLwMaE9XMVpoxI1eE+UUQnRPwIyY9kKOtzbIutcIJmNJdC5xKpZa+tAoho3sHBdGUBpHBAARVwsYZj8S6Uv7jbsB0qDK+j19Dy9cb6E8oqpSj9WPqKsTI0be+nbzP+BvTvLXktp5s2JWuWPtl5OZOUDRv2boY831MIhDdvo0= centos@node-2
+runcmd:
+  - sudo exec /sbin/modprobe -v lnet >/dev/null 2>&1
+  - /sbin/lsmod | /bin/grep lustre 1>/dev/null 2>&1
+  - sudo /sbin/modprobe -v lustre >/dev/null 2>&1
+  - /sbin/lsmod | /bin/grep zfs 1>/dev/null 2>&1
+  - sudo /sbin/modprobe -v zfs >/dev/null 2>&1
+  - sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=`+strconv.Itoa(number*2+1)+ ` /dev/vdb > /dev/null 2>&1
+  - sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=`+strconv.Itoa(number*2+2)+ ` /dev/vdc > /dev/null 2>&1
+  - sudo /usr/bin/mkdir /ost`+strconv.Itoa(number*2+1)+`
+  - sudo /usr/bin/mkdir /ost`+strconv.Itoa(number*2+2)+`
+  - sudo /usr/sbin/mount.lustre /dev/vdb /ost`+strconv.Itoa(number*2+1)+`
+  - sudo /usr/sbin/mount.lustre /dev/vdc /ost`+strconv.Itoa(number*2+2),
                                          },
                                 },
 
@@ -414,7 +426,7 @@ func ossvm(name string) {
                                 },
                         },
                         {
-                                Name: `vol-oss1`,
+                                Name: `vol-oss`+strconv.Itoa(number*2+1),
                                 DiskDevice: kubevirtv1.DiskDevice{
                                         Disk: & kubevirtv1.DiskTarget{
                                                 Bus:	  "virtio",
@@ -423,7 +435,7 @@ func ossvm(name string) {
                                 },
                         },
                         {
-                                Name: `vol-oss2`,
+                                Name: `vol-oss`+strconv.Itoa(number*2+2),
                                 DiskDevice: kubevirtv1.DiskDevice{
                                         Disk: & kubevirtv1.DiskTarget{
                                                 Bus:	  "virtio",
