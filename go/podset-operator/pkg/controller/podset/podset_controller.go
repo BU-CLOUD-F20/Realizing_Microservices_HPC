@@ -398,6 +398,8 @@ runcmd:
   - sudo /sbin/modprobe -v zfs >/dev/null 2>&1
   - sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=`+strconv.Itoa(number*2+1)+ ` /dev/vdb > /dev/null 2>&1
   - sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=`+strconv.Itoa(number*2+2)+ ` /dev/vdc > /dev/null 2>&1
+  - sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=`+strconv.Itoa(number*2+1)+ `--replace /dev/vdb > /dev/null 2>&1
+  - sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=`+strconv.Itoa(number*2+2)+ `--replace /dev/vdc > /dev/null 2>&1
   - sudo /usr/bin/mkdir /ost`+strconv.Itoa(number*2+1)+`
   - sudo /usr/bin/mkdir /ost`+strconv.Itoa(number*2+2)+`
   - sudo /usr/sbin/mount.lustre /dev/vdb /ost`+strconv.Itoa(number*2+1)+`
