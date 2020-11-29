@@ -2,18 +2,24 @@ package podset
 
 import (
 	"context"
+	"fmt"
 	"reflect"
-        "strings"
-        "fmt"
 	"strconv"
-		
+	"strings"
+
 	appv1alpha1 "podset-operator/pkg/apis/app/v1alpha1"
-	
+
+	"github.com/spf13/pflag"
 	corev1 "k8s.io/api/core/v1"
+	k8sv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
+	k8smetav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	kubevirtv1 "kubevirt.io/client-go/api/v1"
+	"kubevirt.io/client-go/kubecli"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -22,13 +28,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
 	"sigs.k8s.io/controller-runtime/pkg/source"
-        k8sv1 "k8s.io/api/core/v1"
-        "k8s.io/apimachinery/pkg/api/resource"
-        "github.com/spf13/pflag"
-        k8smetav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-        "kubevirt.io/client-go/kubecli"
-        kubevirtv1 "kubevirt.io/client-go/api/v1"
-
 )
 
 var log = logf.Log.WithName("controller_podset")
@@ -140,8 +139,8 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 		}
 	}
 	// count oss eventually
-   	existingPodsTest := &corev1.PodList{}
-        r.client.List(context.TODO(),
+	existingPodsTest := &corev1.PodList{}
+	r.client.List(context.TODO(),
 		existingPodsTest,
 		&client.ListOptions{
 			Namespace: "",
@@ -152,8 +151,8 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 		if pod.GetObjectMeta().GetDeletionTimestamp() != nil {
 			continue
 		}
-                if (pod.Status.Phase == corev1.PodPending || pod.Status.Phase == corev1.PodRunning) && strings.HasPrefix(pod.GetObjectMeta().GetName(), `virt-launcher-lustre-oss`) {
-		
+		if (pod.Status.Phase == corev1.PodPending || pod.Status.Phase == corev1.PodRunning) && strings.HasPrefix(pod.GetObjectMeta().GetName(), `virt-launcher-lustre-oss`) {
+
 			numOfVms = append(numOfVms, pod.GetObjectMeta().GetName())
 		}
 	}
@@ -201,15 +200,15 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 	}
 	// scale up vms
 	if podSet.Spec.Replicas <= 2 {
-	   if int32(len(numOfVms)) < podSet.Spec.Replicas {
-	      ossvm(`lustre-oss`+strconv.Itoa(int(len(numOfVms))), int(len(numOfVms)))
-	   }
+		if int32(len(numOfVms)) < podSet.Spec.Replicas {
+			ossvm(`lustre-oss`+strconv.Itoa(int(len(numOfVms))), int(len(numOfVms)))
+		}
 	}
 	// scale down vms
 	if int32(len(numOfVms)) > podSet.Spec.Replicas {
-	   deleteTestvm(`lustre-oss`+strconv.Itoa(int(len(numOfVms))-1))
+		deleteTestvm(`lustre-oss` + strconv.Itoa(int(len(numOfVms))-1))
 	}
-	   
+
 	return reconcile.Result{Requeue: true}, nil
 }
 
@@ -238,156 +237,153 @@ func newPodForCR(cr *appv1alpha1.PodSet) *corev1.Pod {
 }
 
 func testvm(name string) {
-        // kubecli.DefaultClientConfig() prepares config using kubeconfig.
-        // typically, you need to set env variable, KUBECONFIG=<path-to-kubeconfig>/.kubeconfig
-        clientConfig := kubecli.DefaultClientConfig(&pflag.FlagSet{})
+	// kubecli.DefaultClientConfig() prepares config using kubeconfig.
+	// typically, you need to set env variable, KUBECONFIG=<path-to-kubeconfig>/.kubeconfig
+	clientConfig := kubecli.DefaultClientConfig(&pflag.FlagSet{})
 
 	// get the kubevirt client, using which kubevirt resources can be managed.
-        virtClient, err := kubecli.GetKubevirtClientFromClientConfig(clientConfig)
-        if err != nil {
-                fmt.Println("cannot obtain KubeVirt client: %v\n", err)
-        }
+	virtClient, err := kubecli.GetKubevirtClientFromClientConfig(clientConfig)
+	if err != nil {
+		fmt.Println("cannot obtain KubeVirt client: %v\n", err)
+	}
 
 	vm := kubevirtv1.NewMinimalVMI(name)
-        vm.Spec.Domain.Devices.Interfaces = [] kubevirtv1.Interface{
-                                kubevirtv1.Interface{
-                                        Name: "default",
-                                        InterfaceBindingMethod:  kubevirtv1.InterfaceBindingMethod{
-                                                Bridge: &kubevirtv1.InterfaceBridge{},
-                                        },
-                                },
-                        }
-        vm.Spec.Domain.Resources = kubevirtv1.ResourceRequirements{
-                        Requests: k8sv1.ResourceList{
-                                k8sv1.ResourceMemory: resource.MustParse("64M"),
-                        },
-        }
+	vm.Spec.Domain.Devices.Interfaces = []kubevirtv1.Interface{
+		kubevirtv1.Interface{
+			Name: "default",
+			InterfaceBindingMethod: kubevirtv1.InterfaceBindingMethod{
+				Bridge: &kubevirtv1.InterfaceBridge{},
+			},
+		},
+	}
+	vm.Spec.Domain.Resources = kubevirtv1.ResourceRequirements{
+		Requests: k8sv1.ResourceList{
+			k8sv1.ResourceMemory: resource.MustParse("64M"),
+		},
+	}
 	vm.Spec.Volumes = []kubevirtv1.Volume{
-                        {
-                                Name: "containerdisk",
-                                VolumeSource: kubevirtv1.VolumeSource{
-                                        ContainerDisk: &kubevirtv1.ContainerDiskSource{
-                                                Image: "kubevirt/cirros-registry-disk-demo",
-                                        },
-                                },
-                        },
-                        {
-                                Name: "cloudinitdisk",
-                                VolumeSource: kubevirtv1.VolumeSource{
-                                        CloudInitNoCloud: &kubevirtv1.CloudInitNoCloudSource{
-                                                UserDataBase64: `SGkuXG4=`,
-                                        },
-                                },
-
-                        },
-			{
-                                Name: "cloudinitdisk2",
-                                VolumeSource: kubevirtv1.VolumeSource{
-                                        CloudInitNoCloud: &kubevirtv1.CloudInitNoCloudSource{
-                                                UserData: `|-
+		{
+			Name: "containerdisk",
+			VolumeSource: kubevirtv1.VolumeSource{
+				ContainerDisk: &kubevirtv1.ContainerDiskSource{
+					Image: "kubevirt/cirros-registry-disk-demo",
+				},
+			},
+		},
+		{
+			Name: "cloudinitdisk",
+			VolumeSource: kubevirtv1.VolumeSource{
+				CloudInitNoCloud: &kubevirtv1.CloudInitNoCloudSource{
+					UserDataBase64: `SGkuXG4=`,
+				},
+			},
+		},
+		{
+			Name: "cloudinitdisk2",
+			VolumeSource: kubevirtv1.VolumeSource{
+				CloudInitNoCloud: &kubevirtv1.CloudInitNoCloudSource{
+					UserData: `|-
 #cloud-config
 runcmd:
 - "mkdir /home/centos/test"
 `,
-                                        },
-                                },
-
-                        },
-                }
-        vm.Spec.Networks = []kubevirtv1.Network{
-                        kubevirtv1.Network{
-                                Name: "default",
-                                NetworkSource: kubevirtv1.NetworkSource{
-                                        Pod: &kubevirtv1.PodNetwork{},
-                                },
-                        },
-                }
- 	vm.Spec.Domain.Devices.Disks = []kubevirtv1.Disk{
-                        {
-                                Name: "containerdisk",
-                                DiskDevice: kubevirtv1.DiskDevice{
-                                        Disk: & kubevirtv1.DiskTarget{
-                                                Bus:	  "virtio",
-
-                                        },
-                                },
-                        },
-                        {
-                                Name: "cloudinitdisk",
-                                DiskDevice:  kubevirtv1.DiskDevice{
-                                        Disk: & kubevirtv1.DiskTarget{
-                                                Bus:	  "virtio",
-                                        },
-                                },
-                        },
-			{
-                                Name: "cloudinitdisk2",
-                                DiskDevice:  kubevirtv1.DiskDevice{
-                                        Disk: & kubevirtv1.DiskTarget{
-                                                Bus:	  "virtio",
-                                        },
-                                },
-                        },
-                 }
-        fetchedVMI, err := virtClient.VirtualMachineInstance(k8sv1.NamespaceDefault).Create(vm)
-        fmt.Println(fetchedVMI, err)
+				},
+			},
+		},
+	}
+	vm.Spec.Networks = []kubevirtv1.Network{
+		kubevirtv1.Network{
+			Name: "default",
+			NetworkSource: kubevirtv1.NetworkSource{
+				Pod: &kubevirtv1.PodNetwork{},
+			},
+		},
+	}
+	vm.Spec.Domain.Devices.Disks = []kubevirtv1.Disk{
+		{
+			Name: "containerdisk",
+			DiskDevice: kubevirtv1.DiskDevice{
+				Disk: &kubevirtv1.DiskTarget{
+					Bus: "virtio",
+				},
+			},
+		},
+		{
+			Name: "cloudinitdisk",
+			DiskDevice: kubevirtv1.DiskDevice{
+				Disk: &kubevirtv1.DiskTarget{
+					Bus: "virtio",
+				},
+			},
+		},
+		{
+			Name: "cloudinitdisk2",
+			DiskDevice: kubevirtv1.DiskDevice{
+				Disk: &kubevirtv1.DiskTarget{
+					Bus: "virtio",
+				},
+			},
+		},
+	}
+	fetchedVMI, err := virtClient.VirtualMachineInstance(k8sv1.NamespaceDefault).Create(vm)
+	fmt.Println(fetchedVMI, err)
 }
 
 func ossvm(name string, number int) {
-        // kubecli.DefaultClientConfig() prepares config using kubeconfig.
-        // typically, you need to set env variable, KUBECONFIG=<path-to-kubeconfig>/.kubeconfig
-        clientConfig := kubecli.DefaultClientConfig(&pflag.FlagSet{})
+	// kubecli.DefaultClientConfig() prepares config using kubeconfig.
+	// typically, you need to set env variable, KUBECONFIG=<path-to-kubeconfig>/.kubeconfig
+	clientConfig := kubecli.DefaultClientConfig(&pflag.FlagSet{})
 
 	// get the kubevirt client, using which kubevirt resources can be managed.
-        virtClient, err := kubecli.GetKubevirtClientFromClientConfig(clientConfig)
-        if err != nil {
-                fmt.Println("cannot obtain KubeVirt client: %v\n", err)
-        }
+	virtClient, err := kubecli.GetKubevirtClientFromClientConfig(clientConfig)
+	if err != nil {
+		fmt.Println("cannot obtain KubeVirt client: %v\n", err)
+	}
 
 	vm := kubevirtv1.NewMinimalVMI(name)
-        vm.Spec.Domain.Devices.Interfaces = [] kubevirtv1.Interface{
-                                kubevirtv1.Interface{
-                                        Name: "default",
-                                        InterfaceBindingMethod:  kubevirtv1.InterfaceBindingMethod{
-                                                Bridge: &kubevirtv1.InterfaceBridge{},
-                                        },
-                                },
-                        }
-        vm.Spec.Domain.Resources = kubevirtv1.ResourceRequirements{
-                        Requests: k8sv1.ResourceList{
-                                k8sv1.ResourceMemory: resource.MustParse("1024M"),
-                        },
-        }
+	vm.Spec.Domain.Devices.Interfaces = []kubevirtv1.Interface{
+		kubevirtv1.Interface{
+			Name: "default",
+			InterfaceBindingMethod: kubevirtv1.InterfaceBindingMethod{
+				Bridge: &kubevirtv1.InterfaceBridge{},
+			},
+		},
+	}
+	vm.Spec.Domain.Resources = kubevirtv1.ResourceRequirements{
+		Requests: k8sv1.ResourceList{
+			k8sv1.ResourceMemory: resource.MustParse("1024M"),
+		},
+	}
 	vm.Spec.Volumes = []kubevirtv1.Volume{
-                        {
-                                Name: `vol-oss`+strconv.Itoa(number*2+1),
-                                VolumeSource: kubevirtv1.VolumeSource{
-                                        PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource {
-                                                ClaimName: `vol-oss`+strconv.Itoa(number*2+1) ,
-                                        },
-                                },
-                        },
-                        {
-                                Name: `vol-oss`+strconv.Itoa(number*2+2),
-                                VolumeSource: kubevirtv1.VolumeSource{
-                                        PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource {
-                                                ClaimName: `vol-oss`+strconv.Itoa(number*2+2),
-                                        },
-                                },
-                        },
-                        {
-                                Name: "containerdisk",
-                                VolumeSource: kubevirtv1.VolumeSource{
-                                        ContainerDisk: &kubevirtv1.ContainerDiskSource{
-                                                Image: "nakulvr/centos:lustre-server",
-                                        },
-                                },
-                        },
-                        {
-                                Name: "cloudinitdisk",
-                                VolumeSource: kubevirtv1.VolumeSource{
-                                        CloudInitNoCloud: &kubevirtv1.CloudInitNoCloudSource{
-                                                UserData: `#cloud-config
+		{
+			Name: `vol-oss` + strconv.Itoa(number*2+1),
+			VolumeSource: kubevirtv1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: `vol-oss` + strconv.Itoa(number*2+1),
+				},
+			},
+		},
+		{
+			Name: `vol-oss` + strconv.Itoa(number*2+2),
+			VolumeSource: kubevirtv1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: `vol-oss` + strconv.Itoa(number*2+2),
+				},
+			},
+		},
+		{
+			Name: "containerdisk",
+			VolumeSource: kubevirtv1.VolumeSource{
+				ContainerDisk: &kubevirtv1.ContainerDiskSource{
+					Image: "nakulvr/centos:lustre-server",
+				},
+			},
+		},
+		{
+			Name: "cloudinitdisk",
+			VolumeSource: kubevirtv1.VolumeSource{
+				CloudInitNoCloud: &kubevirtv1.CloudInitNoCloudSource{
+					UserData: `#cloud-config
 ssh_authorized_keys:
   - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDAEIJZRVfM/sxhpR4jT6rwUNMZEarTPjhKDOn7ifZa+qa/4MHSCvcPvq0781zypZp6QnNW9WrALfsmi8QQg3P/74EHyNs/rBdFsKmvOsC//AcogRIynL+oR8AlLgs5fwntLEg3/6L9WLSimi5jjFF8QXMULtjfUypHA/6xvX/OHN+62D+ySYn9GeFFYeutUB+NLalvzsjlDTHt4dXmSy+wDM8tIetTIDuc2+yS6qv6tWiV1qaXCn3fHsKTZTnsNCcH9mVLv5CmIqkV/XpcbGqvn3unaBWn4uGwCyudjHM99HunCPbXBfJO4NiCxtFKVpV9wONC/se6KK32AUzd9q+ln3uNLwMaE9XMVpoxI1eE+UUQnRPwIyY9kKOtzbIutcIJmNJdC5xKpZa+tAoho3sHBdGUBpHBAARVwsYZj8S6Uv7jbsB0qDK+j19Dy9cb6E8oqpSj9WPqKsTI0be+nbzP+BvTvLXktp5s2JWuWPtl5OZOUDRv2boY831MIhDdvo0= centos@node-2
 runcmd:
@@ -396,78 +392,71 @@ runcmd:
   - sudo /sbin/modprobe -v lustre >/dev/null 2>&1
   - /sbin/lsmod | /bin/grep zfs 1>/dev/null 2>&1
   - sudo /sbin/modprobe -v zfs >/dev/null 2>&1
-  - sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=`+strconv.Itoa(number*2+1)+ ` /dev/vdb > /dev/null 2>&1
-  - sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=`+strconv.Itoa(number*2+2)+ ` /dev/vdc > /dev/null 2>&1
-  - sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=`+strconv.Itoa(number*2+1)+ `--replace /dev/vdb > /dev/null 2>&1
-  - sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=`+strconv.Itoa(number*2+2)+ `--replace /dev/vdc > /dev/null 2>&1
-  - sudo /usr/bin/mkdir /ost`+strconv.Itoa(number*2+1)+`
-  - sudo /usr/bin/mkdir /ost`+strconv.Itoa(number*2+2)+`
-  - sudo /usr/sbin/mount.lustre /dev/vdb /ost`+strconv.Itoa(number*2+1)+`
-  - sudo /usr/sbin/mount.lustre /dev/vdc /ost`+strconv.Itoa(number*2+2),
-                                         },
-                                },
-
-                        },
-                }
-        vm.Spec.Networks = []kubevirtv1.Network{
-                        kubevirtv1.Network{
-                                Name: "default",
-                                NetworkSource: kubevirtv1.NetworkSource{
-                                        Pod: &kubevirtv1.PodNetwork{},
-                                },
-                        },
-                }
- 	vm.Spec.Domain.Devices.Disks = []kubevirtv1.Disk{
-                        {
-                                Name: "containerdisk",
-                                DiskDevice: kubevirtv1.DiskDevice{
-                                        Disk: & kubevirtv1.DiskTarget{
-                                                Bus:	  "virtio",
-
-                                        },
-                                },
-                        },
-                        {
-                                Name: `vol-oss`+strconv.Itoa(number*2+1),
-                                DiskDevice: kubevirtv1.DiskDevice{
-                                        Disk: & kubevirtv1.DiskTarget{
-                                                Bus:	  "virtio",
-
-                                        },
-                                },
-                        },
-                        {
-                                Name: `vol-oss`+strconv.Itoa(number*2+2),
-                                DiskDevice: kubevirtv1.DiskDevice{
-                                        Disk: & kubevirtv1.DiskTarget{
-                                                Bus:	  "virtio",
-
-                                        },
-                                },
-                        },
-                        {
-                                Name: "cloudinitdisk",
-                                DiskDevice:  kubevirtv1.DiskDevice{
-                                        Disk: & kubevirtv1.DiskTarget{
-                                                Bus:	  "virtio",
-                                        },
-                                },
-                        },
-                 }
-        fetchedVMI, err := virtClient.VirtualMachineInstance(k8sv1.NamespaceDefault).Create(vm)
-        fmt.Println(fetchedVMI, err)
+  - sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=` + strconv.Itoa(number*2+1) + `--reformat --replace /dev/vdb > /dev/null 2>&1
+  - sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=` + strconv.Itoa(number*2+2) + `--reformat --replace /dev/vdc > /dev/null 2>&1
+  - sudo /usr/bin/mkdir /ost` + strconv.Itoa(number*2+1) + `
+  - sudo /usr/bin/mkdir /ost` + strconv.Itoa(number*2+2) + `
+  - sudo /usr/sbin/mount.lustre /dev/vdb /ost` + strconv.Itoa(number*2+1) + `
+  - sudo /usr/sbin/mount.lustre /dev/vdc /ost` + strconv.Itoa(number*2+2),
+				},
+			},
+		},
+	}
+	vm.Spec.Networks = []kubevirtv1.Network{
+		kubevirtv1.Network{
+			Name: "default",
+			NetworkSource: kubevirtv1.NetworkSource{
+				Pod: &kubevirtv1.PodNetwork{},
+			},
+		},
+	}
+	vm.Spec.Domain.Devices.Disks = []kubevirtv1.Disk{
+		{
+			Name: "containerdisk",
+			DiskDevice: kubevirtv1.DiskDevice{
+				Disk: &kubevirtv1.DiskTarget{
+					Bus: "virtio",
+				},
+			},
+		},
+		{
+			Name: `vol-oss` + strconv.Itoa(number*2+1),
+			DiskDevice: kubevirtv1.DiskDevice{
+				Disk: &kubevirtv1.DiskTarget{
+					Bus: "virtio",
+				},
+			},
+		},
+		{
+			Name: `vol-oss` + strconv.Itoa(number*2+2),
+			DiskDevice: kubevirtv1.DiskDevice{
+				Disk: &kubevirtv1.DiskTarget{
+					Bus: "virtio",
+				},
+			},
+		},
+		{
+			Name: "cloudinitdisk",
+			DiskDevice: kubevirtv1.DiskDevice{
+				Disk: &kubevirtv1.DiskTarget{
+					Bus: "virtio",
+				},
+			},
+		},
+	}
+	fetchedVMI, err := virtClient.VirtualMachineInstance(k8sv1.NamespaceDefault).Create(vm)
+	fmt.Println(fetchedVMI, err)
 }
 
-
 func deleteTestvm(name string) {
-        // kubecli.DefaultClientConfig() prepares config using kubeconfig.
-        // typically, you need to set env variable, KUBECONFIG=<path-to-kubeconfig>/.kubeconfig
-        clientConfig := kubecli.DefaultClientConfig(&pflag.FlagSet{})
+	// kubecli.DefaultClientConfig() prepares config using kubeconfig.
+	// typically, you need to set env variable, KUBECONFIG=<path-to-kubeconfig>/.kubeconfig
+	clientConfig := kubecli.DefaultClientConfig(&pflag.FlagSet{})
 
 	// get the kubevirt client, using which kubevirt resources can be managed.
-        virtClient, err := kubecli.GetKubevirtClientFromClientConfig(clientConfig)
-        if err != nil {
-                fmt.Println("cannot obtain KubeVirt client: %v\n", err)
-        }
+	virtClient, err := kubecli.GetKubevirtClientFromClientConfig(clientConfig)
+	if err != nil {
+		fmt.Println("cannot obtain KubeVirt client: %v\n", err)
+	}
 	virtClient.VirtualMachineInstance(k8sv1.NamespaceDefault).Delete(name, &k8smetav1.DeleteOptions{})
 }
