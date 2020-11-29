@@ -387,31 +387,7 @@ func ossvm(name string, number int) {
                                         },
                                 },
                         },
-                        {
-                                Name: "cloudinitdisk",
-                                VolumeSource: kubevirtv1.VolumeSource{
-                                        CloudInitNoCloud: &kubevirtv1.CloudInitNoCloudSource{
-                                                UserData: `#cloud-config
-ssh_authorized_keys:
-  - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDAEIJZRVfM/sxhpR4jT6rwUNMZEarTPjhKDOn7ifZa+qa/4MHSCvcPvq0781zypZp6QnNW9WrALfsmi8QQg3P/74EHyNs/rBdFsKmvOsC//AcogRIynL+oR8AlLgs5fwntLEg3/6L9WLSimi5jjFF8QXMULtjfUypHA/6xvX/OHN+62D+ySYn9GeFFYeutUB+NLalvzsjlDTHt4dXmSy+wDM8tIetTIDuc2+yS6qv6tWiV1qaXCn3fHsKTZTnsNCcH9mVLv5CmIqkV/XpcbGqvn3unaBWn4uGwCyudjHM99HunCPbXBfJO4NiCxtFKVpV9wONC/se6KK32AUzd9q+ln3uNLwMaE9XMVpoxI1eE+UUQnRPwIyY9kKOtzbIutcIJmNJdC5xKpZa+tAoho3sHBdGUBpHBAARVwsYZj8S6Uv7jbsB0qDK+j19Dy9cb6E8oqpSj9WPqKsTI0be+nbzP+BvTvLXktp5s2JWuWPtl5OZOUDRv2boY831MIhDdvo0= centos@node-2
-runcmd:
-  - sudo exec /sbin/modprobe -v lnet >/dev/null 2>&1
-  - /sbin/lsmod | /bin/grep lustre 1>/dev/null 2>&1
-  - sudo /sbin/modprobe -v lustre >/dev/null 2>&1
-  - /sbin/lsmod | /bin/grep zfs 1>/dev/null 2>&1
-  - sudo /sbin/modprobe -v zfs >/dev/null 2>&1
-  - sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=`+strconv.Itoa(number*2+1)+ ` /dev/vdb > /dev/null 2>&1
-  - sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=`+strconv.Itoa(number*2+2)+ ` /dev/vdc > /dev/null 2>&1
-  - sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=`+strconv.Itoa(number*2+1)+ `--replace /dev/vdb > /dev/null 2>&1
-  - sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=`+strconv.Itoa(number*2+2)+ `--replace /dev/vdc > /dev/null 2>&1
-  - sudo /usr/bin/mkdir /ost`+strconv.Itoa(number*2+1)+`
-  - sudo /usr/bin/mkdir /ost`+strconv.Itoa(number*2+2)+`
-  - sudo /usr/sbin/mount.lustre /dev/vdb /ost`+strconv.Itoa(number*2+1)+`
-  - sudo /usr/sbin/mount.lustre /dev/vdc /ost`+strconv.Itoa(number*2+2),
-                                         },
-                                },
-
-                        },
+                        
                 }
         vm.Spec.Networks = []kubevirtv1.Network{
                         kubevirtv1.Network{
@@ -449,16 +425,9 @@ runcmd:
                                         },
                                 },
                         },
-                        {
-                                Name: "cloudinitdisk",
-                                DiskDevice:  kubevirtv1.DiskDevice{
-                                        Disk: & kubevirtv1.DiskTarget{
-                                                Bus:	  "virtio",
-                                        },
-                                },
-                        },
                  }
         fetchedVMI, err := virtClient.VirtualMachineInstance(k8sv1.NamespaceDefault).Create(vm)
+        runStartupScript("centos", fetchedVMI.Status.Interfaces[0].IP, "22", "lustre-ssh.key", "lustre-ssh.key.pub")
         fmt.Println(fetchedVMI, err)
 }
 
