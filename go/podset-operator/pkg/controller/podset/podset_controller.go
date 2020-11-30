@@ -1,6 +1,7 @@
 package podset
 
 import (
+	"time"
 	"context"
 	"fmt"
 	"reflect"
@@ -26,7 +27,7 @@ import (
 	"kubevirt.io/client-go/kubecli"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	// "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -176,32 +177,32 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 		}
 	}
 	// Scale Down Pods
-	if int32(len(existingPodNames)) > podSet.Spec.Replicas {
-		// delete a pod. Just one at a time (this reconciler will be called again afterwards)
-		reqLogger.Info("Deleting a pod in the podset", "expected replicas", podSet.Spec.Replicas, "Pod.Names", existingPodNames)
-		pod := existingPods.Items[0]
-		err = r.client.Delete(context.TODO(), &pod)
-		if err != nil {
-			reqLogger.Error(err, "failed to delete a pod")
-			return reconcile.Result{}, err
-		}
-	}
+	// if int32(len(existingPodNames)) > podSet.Spec.Replicas {
+	// 	// delete a pod. Just one at a time (this reconciler will be called again afterwards)
+	// 	reqLogger.Info("Deleting a pod in the podset", "expected replicas", podSet.Spec.Replicas, "Pod.Names", existingPodNames)
+	// 	pod := existingPods.Items[0]
+	// 	err = r.client.Delete(context.TODO(), &pod)
+	// 	if err != nil {
+	// 		reqLogger.Error(err, "failed to delete a pod")
+	// 		return reconcile.Result{}, err
+	// 	}
+	// }
 
 	// Scale Up Pods
-	if int32(len(existingPodNames)) < podSet.Spec.Replicas {
-		// create a new pod. Just one at a time (this reconciler will be called again afterwards)
-		reqLogger.Info("Adding a pod in the podset", "expected replicas", podSet.Spec.Replicas, "Pod.Names", existingPodNames)
-		pod := newPodForCR(podSet)
-		if err := controllerutil.SetControllerReference(podSet, pod, r.scheme); err != nil {
-			reqLogger.Error(err, "unable to set owner reference on new pod")
-			return reconcile.Result{}, err
-		}
-		err = r.client.Create(context.TODO(), pod)
-		if err != nil {
-			reqLogger.Error(err, "failed to create a pod")
-			return reconcile.Result{}, err
-		}
-	}
+	// if int32(len(existingPodNames)) < podSet.Spec.Replicas {
+	// 	// create a new pod. Just one at a time (this reconciler will be called again afterwards)
+	// 	reqLogger.Info("Adding a pod in the podset", "expected replicas", podSet.Spec.Replicas, "Pod.Names", existingPodNames)
+	// 	pod := newPodForCR(podSet)
+	// 	if err := controllerutil.SetControllerReference(podSet, pod, r.scheme); err != nil {
+	// 		reqLogger.Error(err, "unable to set owner reference on new pod")
+	// 		return reconcile.Result{}, err
+	// 	}
+	// 	err = r.client.Create(context.TODO(), pod)
+	// 	if err != nil {
+	// 		reqLogger.Error(err, "failed to create a pod")
+	// 		return reconcile.Result{}, err
+	// 	}
+	// }
 	// scale up vms
 	if podSet.Spec.Replicas <= 2 {
 		if int32(len(numOfVms)) < podSet.Spec.Replicas {
@@ -342,7 +343,12 @@ func ossvm(name string, number int) {
 	virtClient, err := kubecli.GetKubevirtClientFromClientConfig(clientConfig)
 	if err != nil {
 		fmt.Println("cannot obtain KubeVirt client: %v\n", err)
-	}
+        }
+        
+        privKey, pubKey, err := getKeyFiles("lustre-ssh.key", "lustre-ssh.key.pub")
+	if err !=nil {
+		panic(err)
+        }
 
 	vm := kubevirtv1.NewMinimalVMI(name)
 	vm.Spec.Domain.Devices.Interfaces = []kubevirtv1.Interface{
@@ -380,6 +386,16 @@ func ossvm(name string, number int) {
                                 VolumeSource: kubevirtv1.VolumeSource{
                                         ContainerDisk: &kubevirtv1.ContainerDiskSource{
                                                 Image: "nakulvr/centos:lustre-server",
+                                        },
+                                },
+                        },
+                        {
+                                Name: "cloudinitdisk",
+                                VolumeSource: kubevirtv1.VolumeSource{
+                                        CloudInitNoCloud: &kubevirtv1.CloudInitNoCloudSource{
+                                                UserData: `#cloud-config
+        ssh_authorized_keys:
+          - ` + pubKey,
                                         },
                                 },
                         },
@@ -423,7 +439,17 @@ func ossvm(name string, number int) {
                         },
                  }
         fetchedVMI, err := virtClient.VirtualMachineInstance(k8sv1.NamespaceDefault).Create(vm)
-        runStartupScript("centos", fetchedVMI.Status.Interfaces[0].IP, "22", "lustre-ssh.key", "lustre-ssh.key.pub")
+        fmt.Println("Newly created VM\n")
+        // fmt.Println(fetchedVMI.Status.Interfaces[0].IP)
+        for {
+                time.Sleep(5 * time.Minute)
+                if fetchedVMI.IsRunning() {
+                        break
+                }
+                
+        }
+        fmt.Println("Newly created VM IP:\n")
+        runStartupScript("centos", fetchedVMI.Status.Interfaces[0].IP, "22", privKey, pubKey)
         fmt.Println(fetchedVMI, err)
 }
 
@@ -440,41 +466,40 @@ func deleteTestvm(name string) {
 	virtClient.VirtualMachineInstance(k8sv1.NamespaceDefault).Delete(name, &k8smetav1.DeleteOptions{})
 }
 
-func runStartupScript(user string, hostIP string, port string, privKeyFileName string, pubKeyFileName string){
-	privKey, pubKey, err := getKeyFiles(privKeyFileName, pubKeyFileName)
-	if err !=nil {
-		panic(err)
-        }
+func runStartupScript(user string, hostIP string, port string, privKey ssh.Signer, pubKey string){
+	
 
         // TODO: Here we should probably create the mounting points 
 
         var host string = hostIP + ":" + port
         client, session, err := connectToHost(user, host, privKey)
 	if err != nil {
-		panic(err)
+                // fmt.Println("cannot obtain SSH client\n")
+                // panic(err)
+                fmt.Println("cannot obtain SSH client: %v\n", err)
 	}
 
-	out, err := session.CombinedOutput("echo \"" + user + ":centos\" | chpasswd")
-	if err != nil {
-		panic(err)
-        }
+	// out, err := session.CombinedOutput("echo \"" + user + ":centos\" | chpasswd")
+	// if err != nil {
+	// 	panic(err)
+        // }
         
-        out, err = session.CombinedOutput("sudo mkdir /home/" + user + "/.ssh")
-	if err != nil {
-		panic(err)
-        }
+        // out, err = session.CombinedOutput("sudo mkdir /home/" + user + "/.ssh")
+	// if err != nil {
+	// 	panic(err)
+        // }
         
-        out, err = session.CombinedOutput("sudo echo " + pubKey + " > /home/" + user + "/.ssh/authorized_keys")
-	if err != nil {
-		panic(err)
-        }
+        // out, err = session.CombinedOutput("sudo echo " + pubKey + " > /home/" + user + "/.ssh/authorized_keys")
+	// if err != nil {
+	// 	panic(err)
+        // }
         
-        out, err = session.CombinedOutput("sudo chown -R " + user + ": /home/" + user + "/.ssh")
-	if err != nil {
-		panic(err)
-        }
+        // out, err = session.CombinedOutput("sudo chown -R " + user + ": /home/" + user + "/.ssh")
+	// if err != nil {
+	// 	panic(err)
+        // }
         
-        out, err = session.CombinedOutput("sudo exec /sbin/modprobe -v lnet >/dev/null 2>&1")
+        out, err := session.CombinedOutput("sudo exec /sbin/modprobe -v lnet >/dev/null 2>&1")
 	if err != nil {
 		panic(err)
         }
@@ -489,12 +514,12 @@ func runStartupScript(user string, hostIP string, port string, privKeyFileName s
 		panic(err)
         }
         
-        out, err = session.CombinedOutput("sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=1 /dev/vdb > /dev/null 2>&1")
+        out, err = session.CombinedOutput("sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=1 --reformat --replace /dev/vdb > /dev/null 2>&1")
 	if err != nil {
 		panic(err)
         }
         
-        out, err = session.CombinedOutput("sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=2 /dev/vdc > /dev/null 2>&1")
+        out, err = session.CombinedOutput("sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=2 --reformat --replace /dev/vdc > /dev/null 2>&1")
 	if err != nil {
 		panic(err)
         }
