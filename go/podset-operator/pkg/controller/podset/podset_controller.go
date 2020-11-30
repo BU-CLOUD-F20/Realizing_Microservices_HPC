@@ -389,6 +389,7 @@ func ossvm(name string, number int) {
                                         },
                                 },
                         },
+<<<<<<< HEAD
                         {
                                 Name: "cloudinitdisk",
                                 VolumeSource: kubevirtv1.VolumeSource{
@@ -399,6 +400,8 @@ func ossvm(name string, number int) {
                                         },
                                 },
                         },
+=======
+>>>>>>> 357714c77f50e086a1dcf4248b1e30bdfc606e0c
                         
                 }
         vm.Spec.Networks = []kubevirtv1.Network{
@@ -439,6 +442,7 @@ func ossvm(name string, number int) {
                         },
                  }
         fetchedVMI, err := virtClient.VirtualMachineInstance(k8sv1.NamespaceDefault).Create(vm)
+<<<<<<< HEAD
         fmt.Println("Newly created VM\n")
         // fmt.Println(fetchedVMI.Status.Interfaces[0].IP)
         for {
@@ -450,6 +454,9 @@ func ossvm(name string, number int) {
         }
         fmt.Println("Newly created VM IP:\n")
         runStartupScript("centos", fetchedVMI.Status.Interfaces[0].IP, "22", privKey, pubKey)
+=======
+        runStartupScript("centos", fetchedVMI.Status.Interfaces[0].IP, "22", "lustre-ssh.key", "lustre-ssh.key.pub")
+>>>>>>> 357714c77f50e086a1dcf4248b1e30bdfc606e0c
         fmt.Println(fetchedVMI, err)
 }
 
@@ -520,6 +527,130 @@ func runStartupScript(user string, hostIP string, port string, privKey ssh.Signe
         }
         
         out, err = session.CombinedOutput("sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=2 --reformat --replace /dev/vdc > /dev/null 2>&1")
+	if err != nil {
+		panic(err)
+        }
+        
+        out, err = session.CombinedOutput("sudo /usr/bin/mkdir /ost1")
+	if err != nil {
+		panic(err)
+        }
+        
+        out, err = session.CombinedOutput("sudo /usr/bin/mkdir /ost2")
+	if err != nil {
+		panic(err)
+        }
+        
+        out, err = session.CombinedOutput("sudo /usr/sbin/mount.lustre /dev/vdb /ost1")
+	if err != nil {
+		panic(err)
+        }
+        
+        out, err = session.CombinedOutput("sudo /usr/sbin/mount.lustre /dev/vdc /ost2")
+	if err != nil {
+		panic(err)
+	}
+        fmt.Println(string(out))
+        
+	client.Close()
+}
+
+func getKeyFiles(privKeyFileName string, pubKeyFilename string) (privKey ssh.Signer, pubKey string, err error){
+        usr, _ := user.Current()
+        file := usr.HomeDir + "/.ssh/" + privKeyFileName
+        buf, err := ioutil.ReadFile(file)
+        if err != nil {
+                return
+        }
+        privKey, err = ssh.ParsePrivateKey(buf)
+        file = usr.HomeDir + "/.ssh/" + pubKeyFilename
+        buf, err = ioutil.ReadFile(file)
+        pubKey = string(buf)
+	fmt.Println("PubKey retrieved: " + string(buf))
+        if err != nil {
+                return
+        }
+        return
+}
+
+func connectToHost(user, host string, key ssh.Signer) (*ssh.Client, *ssh.Session, error) {
+	sshConfig := &ssh.ClientConfig{
+		User: user,
+		Auth: []ssh.AuthMethod{
+			ssh.PublicKeys(key),
+		},
+	}
+	sshConfig.HostKeyCallback = ssh.InsecureIgnoreHostKey()
+
+	client, err := ssh.Dial("tcp", host, sshConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	session, err := client.NewSession()
+	if err != nil {
+		client.Close()
+		return nil, nil, err
+	}
+
+	return client, session, nil
+}
+
+func runStartupScript(user string, hostIP string, port string, privKeyFileName string, pubKeyFileName string){
+	privKey, pubKey, err := getKeyFiles(privKeyFileName, pubKeyFileName)
+	if err !=nil {
+		panic(err)
+        }
+
+        // TODO: Here we should probably create the mounting points 
+
+        var host string = hostIP + ":" + port
+        client, session, err := connectToHost(user, host, privKey)
+	if err != nil {
+		panic(err)
+	}
+
+	out, err := session.CombinedOutput("echo \"" + user + ":centos\" | chpasswd")
+	if err != nil {
+		panic(err)
+        }
+        
+        out, err = session.CombinedOutput("sudo mkdir /home/" + user + "/.ssh")
+	if err != nil {
+		panic(err)
+        }
+        
+        out, err = session.CombinedOutput("sudo echo " + pubKey + " > /home/" + user + "/.ssh/authorized_keys")
+	if err != nil {
+		panic(err)
+        }
+        
+        out, err = session.CombinedOutput("sudo chown -R " + user + ": /home/" + user + "/.ssh")
+	if err != nil {
+		panic(err)
+        }
+        
+        out, err = session.CombinedOutput("sudo exec /sbin/modprobe -v lnet >/dev/null 2>&1")
+	if err != nil {
+		panic(err)
+        }
+        
+        out, err = session.CombinedOutput("sudo /sbin/modprobe -v lustre >/dev/null 2>&1")
+	if err != nil {
+		panic(err)
+        }
+        
+        out, err = session.CombinedOutput("sudo /sbin/modprobe -v zfs >/dev/null 2>&1")
+	if err != nil {
+		panic(err)
+        }
+        
+        out, err = session.CombinedOutput("sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=1 /dev/vdb > /dev/null 2>&1")
+	if err != nil {
+		panic(err)
+        }
+        
+        out, err = session.CombinedOutput("sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=2 /dev/vdc > /dev/null 2>&1")
 	if err != nil {
 		panic(err)
         }
