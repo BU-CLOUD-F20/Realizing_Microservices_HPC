@@ -1,6 +1,7 @@
 package podset
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"reflect"
@@ -10,6 +11,7 @@ import (
 	appv1alpha1 "podset-operator/pkg/apis/app/v1alpha1"
 
 	"github.com/spf13/pflag"
+	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	k8sv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -93,6 +95,10 @@ type ReconcilePodSet struct {
 // The Controller will requeue the Request to be processed again if the returned error is non-nil or
 // Result.Requeue is true, otherwise upon completion it will remove the work from the queue.
 var vmCount int = 1
+var mgsIp string = ""
+var mdsIp string = ""
+var clientIp string = ""
+var maxVmCount int = -1
 
 func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result, error) {
 	reqLogger := log.WithValues("Request.Namespace", request.Namespace, "Request.Name", request.Name)
@@ -201,15 +207,188 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 	// scale up vms
 	if podSet.Spec.Replicas <= 2 {
 		if int32(len(numOfVms)) < podSet.Spec.Replicas {
+			enableOst(int(len(numOfVms)))
 			ossvm(`lustre-oss`+strconv.Itoa(int(len(numOfVms))), int(len(numOfVms)))
 		}
 	}
 	// scale down vms
 	if int32(len(numOfVms)) > podSet.Spec.Replicas {
+		mergeOst(int(len(numOfVms)))
 		deleteTestvm(`lustre-oss` + strconv.Itoa(int(len(numOfVms))-1))
 	}
 
+	clientConfig := kubecli.DefaultClientConfig(&pflag.FlagSet{})
+	namespace, _, err := clientConfig.Namespace()
+
+	// get the kubevirt client, using which kubevirt resources can be managed.
+	virtClient, err := kubecli.GetKubevirtClientFromClientConfig(clientConfig)
+
+	vmiList, err := virtClient.VirtualMachineInstance(namespace).List(&k8smetav1.ListOptions{})
+	if err != nil {
+		fmt.Println("cannot obtain KubeVirt client: %v\n", err)
+	}
+
+	for _, vmi := range vmiList.Items {
+		reqLogger.Info("Test", "vmi name", vmi.Name)
+		if vmi.Name == `lustre-mds` {
+			mdsIp = strings.Split(vmi.Status.Interfaces[0].IP, "/")[0]
+			reqLogger.Info("Test", "vmi ip", mdsIp)
+		}
+		if vmi.Name == `lustre-mgs` {
+			mgsIp = strings.Split(vmi.Status.Interfaces[0].IP, "/")[0]
+			reqLogger.Info("Test", "vmi ip", mgsIp)
+		}
+		if vmi.Name == `lustre-client` {
+			clientIp = strings.Split(vmi.Status.Interfaces[0].IP, "/")[0]
+			reqLogger.Info("Test", "vmi ip", clientIp)
+		}
+	}
+
 	return reconcile.Result{Requeue: true}, nil
+}
+
+func mergeOst(number int) {
+	key, err := getKeyFile()
+	if err != nil {
+		panic(err)
+	}
+
+	//mds commands
+	client, session, err := connectToHost("centos", mdsIp+`:22`, key)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	var b bytes.Buffer
+	session.Stdout = &b
+	commands := []string{
+		`sudo lctl set_param osp.lustrefs-OST000` + strconv.Itoa(number+1) + `*.max_create_count=0`,
+		`sudo lctl set_param osp.lustrefs-OST000` + strconv.Itoa(number+2) + `*.max_create_count=0`,
+	}
+	command := strings.Join(commands, "; ")
+	if err := session.Run(command); err != nil {
+		fmt.Println("MDS Failed to run: " + err.Error())
+	}
+	client.Close()
+	session.Close()
+
+	//client commands
+	client, session, err = connectToHost("centos", clientIp+`:22`, key)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	session.Stdout = &b
+	commands = []string{
+		`sudo lfs find --ost lustrefs-OST000` + strconv.Itoa(number+1) + `_UUID /lustrefs | sudo lfs_migrate -y`,
+		`sudo lfs find --ost lustrefs-OST000` + strconv.Itoa(number+2) + `_UUID /lustrefs | sudo lfs_migrate -y`,
+	}
+	command = strings.Join(commands, "; ")
+	if err := session.Run(command); err != nil {
+		fmt.Println("number is ", number)
+		fmt.Println("Client Failed to run: " + err.Error())
+	}
+	client.Close()
+	session.Close()
+
+	//mds disable commands
+	client, session, err = connectToHost("centos", mdsIp+`:22`, key)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	session.Stdout = &b
+	commands = []string{
+		`sudo lctl set_param osp.lustrefs-OST000` + strconv.Itoa(number+1) + `-*.active=0`,
+		`sudo lctl set_param osp.lustrefs-OST000` + strconv.Itoa(number+2) + `-*.active=0`,
+	}
+	command = strings.Join(commands, "; ")
+	if err := session.Run(command); err != nil {
+		fmt.Println("mds disable failed to run: " + err.Error())
+	}
+	client.Close()
+	session.Close()
+
+	//client disable commands
+	client, session, err = connectToHost("centos", clientIp+`:22`, key)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	session.Stdout = &b
+	commands = []string{
+		`sudo lctl set_param osc.lustrefs-OST000` + strconv.Itoa(number+1) + `-*.active=0`,
+		`sudo lctl set_param osc.lustrefs-OST000` + strconv.Itoa(number+2) + `-*.active=0`,
+	}
+	command = strings.Join(commands, "; ")
+	if err := session.Run(command); err != nil {
+		fmt.Println("number is ", number)
+		fmt.Println("client disable failed to run: " + err.Error())
+	}
+	client.Close()
+	session.Close()
+}
+
+func enableOst(number int) {
+	key, err := getKeyFile()
+	if err != nil {
+		panic(err)
+	}
+
+	//mds commands
+	client, session, err := connectToHost("centos", mdsIp+`:22`, key)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	var b bytes.Buffer
+	session.Stdout = &b
+	commands := []string{
+		`sudo lctl set_param osp.lustrefs-OST000` + strconv.Itoa(number*2+1) + `*.max_create_count=20000`,
+		`sudo lctl set_param osp.lustrefs-OST000` + strconv.Itoa(number*2+2) + `*.max_create_count=20000`,
+	}
+	command := strings.Join(commands, "; ")
+	if err := session.Run(command); err != nil {
+		fmt.Println("MDS max count enable failed to run: " + err.Error())
+	}
+	client.Close()
+	session.Close()
+
+	//mds enable commands
+	client, session, err = connectToHost("centos", mdsIp+`:22`, key)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	session.Stdout = &b
+	commands = []string{
+		`sudo lctl set_param osp.lustrefs-OST000` + strconv.Itoa(number*2+1) + `-*.active=1`,
+		`sudo lctl set_param osp.lustrefs-OST000` + strconv.Itoa(number*2+2) + `-*.active=1`,
+	}
+	command = strings.Join(commands, "; ")
+	if err := session.Run(command); err != nil {
+		fmt.Println("MGS active enable failed to run: " + err.Error())
+	}
+	client.Close()
+	session.Close()
+
+	//client enable commands
+	client, session, err = connectToHost("centos", clientIp+`:22`, key)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	session.Stdout = &b
+	commands = []string{
+		`sudo lctl set_param osc.lustrefs-OST000` + strconv.Itoa(number*2+1) + `-*.active=1`,
+		`sudo lctl set_param osc.lustrefs-OST000` + strconv.Itoa(number*2+2) + `-*.active=1`,
+	}
+	command = strings.Join(commands, "; ")
+	if err := session.Run(command); err != nil {
+		fmt.Println("client enable failed to run: " + err.Error())
+	}
+	client.Close()
+	session.Close()
 }
 
 // newPodForCR returns a busybox pod with the same name/namespace as the cr
@@ -340,6 +519,16 @@ func ossvm(name string, number int) {
 		fmt.Println("cannot obtain KubeVirt client: %v\n", err)
 	}
 
+	var arg1 string = ""
+	var arg2 string = ""
+	//if maxVmCount < number {
+	maxVmCount = number
+	arg1 = strconv.Itoa(number*2 + 1)
+	arg2 = strconv.Itoa(number*2 + 2)
+	//} else {
+	//	arg1 = strconv.Itoa(number*2+1) + ` --replace `
+	//	arg2 = strconv.Itoa(number*2+2) + ` --replace `
+	//}
 	vm := kubevirtv1.NewMinimalVMI(name)
 	vm.Spec.Domain.Devices.Interfaces = []kubevirtv1.Interface{
 		kubevirtv1.Interface{
@@ -392,8 +581,8 @@ runcmd:
   - sudo /sbin/modprobe -v lustre >/dev/null 2>&1
   - /sbin/lsmod | /bin/grep zfs 1>/dev/null 2>&1
   - sudo /sbin/modprobe -v zfs >/dev/null 2>&1
-  - sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=` + strconv.Itoa(number*2+1) + `--reformat --replace /dev/vdb > /dev/null 2>&1
-  - sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=` + strconv.Itoa(number*2+2) + `--reformat --replace /dev/vdc > /dev/null 2>&1
+  - sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=` + arg1 + ` /dev/vdb > /dev/null 2>&1
+  - sudo /usr/sbin/mkfs.lustre --ost --fsname=lustrefs --mgsnode=lustre-mgs.default-lustre@tcp0 --index=` + arg2 + ` /dev/vdc > /dev/null 2>&1
   - sudo /usr/bin/mkdir /ost` + strconv.Itoa(number*2+1) + `
   - sudo /usr/bin/mkdir /ost` + strconv.Itoa(number*2+2) + `
   - sudo /usr/sbin/mount.lustre /dev/vdb /ost` + strconv.Itoa(number*2+1) + `
@@ -459,4 +648,40 @@ func deleteTestvm(name string) {
 		fmt.Println("cannot obtain KubeVirt client: %v\n", err)
 	}
 	virtClient.VirtualMachineInstance(k8sv1.NamespaceDefault).Delete(name, &k8smetav1.DeleteOptions{})
+}
+
+func getKeyFile() (key ssh.Signer, err error) {
+	buf := `-----BEGIN OPENSSH PRIVATE KEY-----
+insert your private key
+-----END OPENSSH PRIVATE KEY-----
+`
+	var b []byte = []byte(buf)
+	key, err = ssh.ParsePrivateKey(b)
+	if err != nil {
+		return
+	}
+	return
+}
+
+func connectToHost(user, host string, key ssh.Signer) (*ssh.Client, *ssh.Session, error) {
+	sshConfig := &ssh.ClientConfig{
+		User: user,
+		Auth: []ssh.AuthMethod{
+			ssh.PublicKeys(key),
+		},
+	}
+	sshConfig.HostKeyCallback = ssh.InsecureIgnoreHostKey()
+
+	client, err := ssh.Dial("tcp", host, sshConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	session, err := client.NewSession()
+	if err != nil {
+		client.Close()
+		return nil, nil, err
+	}
+
+	return client, session, nil
 }
