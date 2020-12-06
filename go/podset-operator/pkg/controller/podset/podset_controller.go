@@ -1,12 +1,14 @@
 package podset
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	appv1alpha1 "podset-operator/pkg/apis/app/v1alpha1"
 
@@ -14,6 +16,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	k8sv1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	k8smetav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -24,7 +27,6 @@ import (
 	"kubevirt.io/client-go/kubecli"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -177,74 +179,83 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 			return reconcile.Result{}, err
 		}
 	}
-	// Scale Down Pods
-	if int32(len(existingPodNames)) > podSet.Spec.Replicas {
-		// delete a pod. Just one at a time (this reconciler will be called again afterwards)
-		reqLogger.Info("Deleting a pod in the podset", "expected replicas", podSet.Spec.Replicas, "Pod.Names", existingPodNames)
-		pod := existingPods.Items[0]
-		err = r.client.Delete(context.TODO(), &pod)
-		if err != nil {
-			reqLogger.Error(err, "failed to delete a pod")
-			return reconcile.Result{}, err
-		}
-	}
 
-	// Scale Up Pods
-	if int32(len(existingPodNames)) < podSet.Spec.Replicas {
-		// create a new pod. Just one at a time (this reconciler will be called again afterwards)
-		reqLogger.Info("Adding a pod in the podset", "expected replicas", podSet.Spec.Replicas, "Pod.Names", existingPodNames)
-		pod := newPodForCR(podSet)
-		if err := controllerutil.SetControllerReference(podSet, pod, r.scheme); err != nil {
-			reqLogger.Error(err, "unable to set owner reference on new pod")
-			return reconcile.Result{}, err
-		}
-		err = r.client.Create(context.TODO(), pod)
-		if err != nil {
-			reqLogger.Error(err, "failed to create a pod")
-			return reconcile.Result{}, err
-		}
-	}
-	// scale up vms
-	if podSet.Spec.Replicas <= 2 {
-		if int32(len(numOfVms)) < podSet.Spec.Replicas {
-			enableOst(int(len(numOfVms)))
-			ossvm(`lustre-oss`+strconv.Itoa(int(len(numOfVms))), int(len(numOfVms)))
-		}
-	}
-	// scale down vms
-	if int32(len(numOfVms)) > podSet.Spec.Replicas {
-		mergeOst(int(len(numOfVms)))
-		deleteTestvm(`lustre-oss` + strconv.Itoa(int(len(numOfVms))-1))
-	}
-
+	// get master ip
+	// get the kubevirt client, using which kubevirt resources can be managed.
 	clientConfig := kubecli.DefaultClientConfig(&pflag.FlagSet{})
 	namespace, _, err := clientConfig.Namespace()
-
-	// get the kubevirt client, using which kubevirt resources can be managed.
 	virtClient, err := kubecli.GetKubevirtClientFromClientConfig(clientConfig)
+
+	nodes, err := virtClient.CoreV1().Nodes().List(metav1.ListOptions{})
+	if err != nil {
+		panic(err)
+	}
+	nodeip := []corev1.NodeAddress{}
+	for i := 0; i < len(nodes.Items); i++ {
+		nodeip = nodes.Items[i].Status.Addresses
+		fmt.Println(nodeip[0].Address)
+	}
+
+	fmt.Println(nodes.Items[0].Status.Addresses)
 
 	vmiList, err := virtClient.VirtualMachineInstance(namespace).List(&k8smetav1.ListOptions{})
 	if err != nil {
 		fmt.Println("cannot obtain KubeVirt client: %v\n", err)
 	}
 
+	if err != nil {
+		fmt.Println("cannot obtain KubeVirt client: %v\n", err)
+	}
 	for _, vmi := range vmiList.Items {
-		reqLogger.Info("Test", "vmi name", vmi.Name)
 		if vmi.Name == `lustre-mds` {
 			mdsIp = strings.Split(vmi.Status.Interfaces[0].IP, "/")[0]
-			reqLogger.Info("Test", "vmi ip", mdsIp)
+			// reqLogger.Info("Test", "vmi ip", mdsIp)
 		}
 		if vmi.Name == `lustre-mgs` {
 			mgsIp = strings.Split(vmi.Status.Interfaces[0].IP, "/")[0]
-			reqLogger.Info("Test", "vmi ip", mgsIp)
+			// reqLogger.Info("Test", "vmi ip", mgsIp)
 		}
 		if vmi.Name == `lustre-client` {
 			clientIp = strings.Split(vmi.Status.Interfaces[0].IP, "/")[0]
-			reqLogger.Info("Test", "vmi ip", clientIp)
+			// reqLogger.Info("Test", "vmi ip", clientIp)
 		}
 	}
+	usage := getFsSize()
 
-	return reconcile.Result{Requeue: true}, nil
+	if podSet.Spec.Replicas == int32(-1) {
+		if usage >= 75 {
+			fmt.Println("Time to scale up!\n")
+			createPv(nodes.Items[0].Status.Addresses[0].Address, int(len(numOfVms)))
+			createPvc(int(len(numOfVms)))
+			enableOst(int(len(numOfVms)))
+			ossvm(`lustre-oss`+strconv.Itoa(int(len(numOfVms))), int(len(numOfVms)))
+		} else if (usage <= 20) && (int(len(numOfVms)) > 1) {
+			fmt.Println("Time to scale down!\n")
+			mergeOst(int(len(numOfVms)))
+			deleteTestvm(`lustre-oss` + strconv.Itoa(int(len(numOfVms))-1))
+			deletePvc(int(len(numOfVms)))
+			deletePv(nodes.Items[0].Status.Addresses[0].Address, int(len(numOfVms)))
+		} else {
+			fmt.Println("Nothing to be done\n")
+		}
+		return reconcile.Result{Requeue: true, RequeueAfter: 60 * time.Second}, nil
+	} else {
+		// scale up vms
+		if int32(len(numOfVms)) < podSet.Spec.Replicas {
+			createPv(nodes.Items[0].Status.Addresses[0].Address, int(len(numOfVms)))
+			createPvc(int(len(numOfVms)))
+			enableOst(int(len(numOfVms)))
+			ossvm(`lustre-oss`+strconv.Itoa(int(len(numOfVms))), int(len(numOfVms)))
+		}
+		// scale down vms
+		if int32(len(numOfVms)) > podSet.Spec.Replicas {
+			mergeOst(int(len(numOfVms)))
+			deleteTestvm(`lustre-oss` + strconv.Itoa(int(len(numOfVms))-1))
+			deletePvc(int(len(numOfVms)))
+			deletePv(nodes.Items[0].Status.Addresses[0].Address, int(len(numOfVms)))
+		}
+		return reconcile.Result{Requeue: true}, nil
+	}
 }
 
 func mergeOst(number int) {
@@ -257,13 +268,14 @@ func mergeOst(number int) {
 	client, session, err := connectToHost("centos", mdsIp+`:22`, key)
 	if err != nil {
 		fmt.Println(err)
+		return
 	}
 
 	var b bytes.Buffer
 	session.Stdout = &b
 	commands := []string{
-		`sudo lctl set_param osp.lustrefs-OST000` + strconv.Itoa(number+1) + `*.max_create_count=0`,
-		`sudo lctl set_param osp.lustrefs-OST000` + strconv.Itoa(number+2) + `*.max_create_count=0`,
+		`sudo lctl set_param osp.lustrefs-OST000` + strconv.Itoa((number-1)*2+1) + `*.max_create_count=0`,
+		`sudo lctl set_param osp.lustrefs-OST000` + strconv.Itoa((number-1)+2+2) + `*.max_create_count=0`,
 	}
 	command := strings.Join(commands, "; ")
 	if err := session.Run(command); err != nil {
@@ -276,12 +288,13 @@ func mergeOst(number int) {
 	client, session, err = connectToHost("centos", clientIp+`:22`, key)
 	if err != nil {
 		fmt.Println(err)
+		return
 	}
 
 	session.Stdout = &b
 	commands = []string{
-		`sudo lfs find --ost lustrefs-OST000` + strconv.Itoa(number+1) + `_UUID /lustrefs | sudo lfs_migrate -y`,
-		`sudo lfs find --ost lustrefs-OST000` + strconv.Itoa(number+2) + `_UUID /lustrefs | sudo lfs_migrate -y`,
+		`sudo lfs find --ost lustrefs-OST000` + strconv.Itoa((number-1)*2+1) + `_UUID /lustrefs | sudo lfs_migrate -y`,
+		`sudo lfs find --ost lustrefs-OST000` + strconv.Itoa((number-1)*2+2) + `_UUID /lustrefs | sudo lfs_migrate -y`,
 	}
 	command = strings.Join(commands, "; ")
 	if err := session.Run(command); err != nil {
@@ -295,12 +308,13 @@ func mergeOst(number int) {
 	client, session, err = connectToHost("centos", mdsIp+`:22`, key)
 	if err != nil {
 		fmt.Println(err)
+		return
 	}
 
 	session.Stdout = &b
 	commands = []string{
-		`sudo lctl set_param osp.lustrefs-OST000` + strconv.Itoa(number+1) + `-*.active=0`,
-		`sudo lctl set_param osp.lustrefs-OST000` + strconv.Itoa(number+2) + `-*.active=0`,
+		`sudo lctl set_param osp.lustrefs-OST000` + strconv.Itoa((number-1)*2+1) + `-*.active=0`,
+		`sudo lctl set_param osp.lustrefs-OST000` + strconv.Itoa((number-1)*2+2) + `-*.active=0`,
 	}
 	command = strings.Join(commands, "; ")
 	if err := session.Run(command); err != nil {
@@ -313,12 +327,13 @@ func mergeOst(number int) {
 	client, session, err = connectToHost("centos", clientIp+`:22`, key)
 	if err != nil {
 		fmt.Println(err)
+		return
 	}
 
 	session.Stdout = &b
 	commands = []string{
-		`sudo lctl set_param osc.lustrefs-OST000` + strconv.Itoa(number+1) + `-*.active=0`,
-		`sudo lctl set_param osc.lustrefs-OST000` + strconv.Itoa(number+2) + `-*.active=0`,
+		`sudo lctl set_param osc.lustrefs-OST000` + strconv.Itoa((number-1)*2+1) + `-*.active=0`,
+		`sudo lctl set_param osc.lustrefs-OST000` + strconv.Itoa((number-1)*2+2) + `-*.active=0`,
 	}
 	command = strings.Join(commands, "; ")
 	if err := session.Run(command); err != nil {
@@ -339,6 +354,7 @@ func enableOst(number int) {
 	client, session, err := connectToHost("centos", mdsIp+`:22`, key)
 	if err != nil {
 		fmt.Println(err)
+		return
 	}
 
 	var b bytes.Buffer
@@ -358,6 +374,7 @@ func enableOst(number int) {
 	client, session, err = connectToHost("centos", mdsIp+`:22`, key)
 	if err != nil {
 		fmt.Println(err)
+		return
 	}
 
 	session.Stdout = &b
@@ -376,6 +393,7 @@ func enableOst(number int) {
 	client, session, err = connectToHost("centos", clientIp+`:22`, key)
 	if err != nil {
 		fmt.Println(err)
+		return
 	}
 
 	session.Stdout = &b
@@ -521,14 +539,14 @@ func ossvm(name string, number int) {
 
 	var arg1 string = ""
 	var arg2 string = ""
-	//if maxVmCount < number {
-	maxVmCount = number
-	arg1 = strconv.Itoa(number*2 + 1)
-	arg2 = strconv.Itoa(number*2 + 2)
-	//} else {
-	//	arg1 = strconv.Itoa(number*2+1) + ` --replace `
-	//	arg2 = strconv.Itoa(number*2+2) + ` --replace `
-	//}
+	count := getOspMeta()
+	if number < count {
+		arg1 = strconv.Itoa(number*2+1) + ` --reformat --replace `
+		arg2 = strconv.Itoa(number*2+2) + ` --reformat --replace `
+	} else {
+		arg1 = strconv.Itoa(number*2 + 1)
+		arg2 = strconv.Itoa(number*2 + 2)
+	}
 	vm := kubevirtv1.NewMinimalVMI(name)
 	vm.Spec.Domain.Devices.Interfaces = []kubevirtv1.Interface{
 		kubevirtv1.Interface{
@@ -637,6 +655,39 @@ runcmd:
 	fmt.Println(fetchedVMI, err)
 }
 
+func getOspMeta() int {
+	key, err := getKeyFile()
+	if err != nil {
+		panic(err)
+	}
+
+	//master node commands
+	client, session, err := connectToHost("centos", mdsIp+`:22`, key)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	var b bytes.Buffer
+	session.Stdout = &b
+	commands := []string{
+		`sudo lctl dl | grep osp`,
+	}
+	command := strings.Join(commands, "; ")
+	if err := session.Run(command); err != nil {
+		fmt.Println("MDS count:" + err.Error())
+	}
+	client.Close()
+	session.Close()
+
+	s := string(b.Bytes())
+	var count int = 0
+	scanner := bufio.NewScanner(strings.NewReader(s))
+	for scanner.Scan() {
+		count++
+	}
+	return count / 2
+}
+
 func deleteTestvm(name string) {
 	// kubecli.DefaultClientConfig() prepares config using kubeconfig.
 	// typically, you need to set env variable, KUBECONFIG=<path-to-kubeconfig>/.kubeconfig
@@ -652,7 +703,7 @@ func deleteTestvm(name string) {
 
 func getKeyFile() (key ssh.Signer, err error) {
 	buf := `-----BEGIN OPENSSH PRIVATE KEY-----
-insert your private key
+enter your key here
 -----END OPENSSH PRIVATE KEY-----
 `
 	var b []byte = []byte(buf)
@@ -684,4 +735,244 @@ func connectToHost(user, host string, key ssh.Signer) (*ssh.Client, *ssh.Session
 	}
 
 	return client, session, nil
+}
+
+func createPvc(number int) {
+	var class *string
+	var s string = "local-storage"
+	class = &s
+	pvc1 := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "vol-oss" + strconv.Itoa(number*2+1),
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany},
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceName(v1.ResourceStorage): resource.MustParse("1Gi"),
+				},
+			},
+			StorageClassName: class,
+		},
+	}
+	pvc2 := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "vol-oss" + strconv.Itoa(number*2+2),
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany},
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceName(v1.ResourceStorage): resource.MustParse("1Gi"),
+				},
+			},
+			StorageClassName: class,
+		},
+	}
+	// kubecli.DefaultClientConfig() prepares config using kubeconfig.
+	// typically, you need to set env variable, KUBECONFIG=<path-to-kubeconfig>/.kubeconfig
+	clientConfig := kubecli.DefaultClientConfig(&pflag.FlagSet{})
+
+	// get the kubevirt client, using which kubevirt resources can be managed.
+	virtClient, err := kubecli.GetKubevirtClientFromClientConfig(clientConfig)
+	if err != nil {
+		fmt.Println("cannot obtain KubeVirt client: %v\n", err)
+	}
+	_, err = virtClient.CoreV1().PersistentVolumeClaims(k8sv1.NamespaceDefault).Create(pvc1)
+	fmt.Println(err)
+	_, err = virtClient.CoreV1().PersistentVolumeClaims(k8sv1.NamespaceDefault).Create(pvc2)
+	fmt.Println(err)
+}
+
+func deletePvc(number int) {
+	// kubecli.DefaultClientConfig() prepares config using kubeconfig.
+	// typically, you need to set env variable, KUBECONFIG=<path-to-kubeconfig>/.kubeconfig
+	clientConfig := kubecli.DefaultClientConfig(&pflag.FlagSet{})
+
+	// get the kubevirt client, using which kubevirt resources can be managed.
+	virtClient, err := kubecli.GetKubevirtClientFromClientConfig(clientConfig)
+	fmt.Println(err)
+	_ = virtClient.CoreV1().PersistentVolumeClaims(k8sv1.NamespaceDefault).Delete("vol-oss"+strconv.Itoa((number-1)*2+1), &metav1.DeleteOptions{})
+	_ = virtClient.CoreV1().PersistentVolumeClaims(k8sv1.NamespaceDefault).Delete("vol-oss"+strconv.Itoa((number-1)*2+2), &metav1.DeleteOptions{})
+}
+
+func createPv(ip string, number int) {
+	key, err := getKeyFile()
+	if err != nil {
+		panic(err)
+	}
+
+	//master node commands
+	client, session, err := connectToHost("centos", ip+`:22`, key)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	var b bytes.Buffer
+	session.Stdout = &b
+	commands := []string{
+		`sudo mkdir /pvc-data/ost` + strconv.Itoa(number*2+1),
+		`sudo mkdir /pvc-data/ost` + strconv.Itoa(number*2+2),
+	}
+	command := strings.Join(commands, "; ")
+	if err := session.Run(command); err != nil {
+		fmt.Println("Master pvc created error:" + err.Error())
+	}
+	client.Close()
+	session.Close()
+
+	// kubecli.DefaultClientConfig() prepares config using kubeconfig.
+	// typically, you need to set env variable, KUBECONFIG=<path-to-kubeconfig>/.kubeconfig
+	clientConfig := kubecli.DefaultClientConfig(&pflag.FlagSet{})
+
+	// get the kubevirt client, using which kubevirt resources can be managed.
+	virtClient, err := kubecli.GetKubevirtClientFromClientConfig(clientConfig)
+	mode := corev1.PersistentVolumeFilesystem
+	pv1 := &corev1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "pv-oss" + strconv.Itoa(number*2+1),
+		},
+		Spec: corev1.PersistentVolumeSpec{
+			Capacity: corev1.ResourceList{
+				"storage": resource.MustParse("1Gi"),
+			},
+			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany},
+			VolumeMode:       &mode,
+			StorageClassName: "local-storage",
+			PersistentVolumeSource: corev1.PersistentVolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{Path: `/pvc-data/ost` + strconv.Itoa(number*2+1)},
+			},
+			PersistentVolumeReclaimPolicy: corev1.PersistentVolumeReclaimDelete,
+			NodeAffinity: &corev1.VolumeNodeAffinity{
+				Required: &corev1.NodeSelector{
+					NodeSelectorTerms: []corev1.NodeSelectorTerm{
+						{
+							MatchExpressions: []v1.NodeSelectorRequirement{
+								{
+									Key:      `kubernetes.io/hostname`,
+									Operator: corev1.NodeSelectorOpIn,
+									Values: []string{
+										"master-node",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	pv2 := &corev1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "pv-oss" + strconv.Itoa(number*2+2),
+		},
+		Spec: corev1.PersistentVolumeSpec{
+			Capacity: corev1.ResourceList{
+				"storage": resource.MustParse("1Gi"),
+			},
+			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany},
+			VolumeMode:       &mode,
+			StorageClassName: "local-storage",
+			PersistentVolumeSource: corev1.PersistentVolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{Path: `/pvc-data/ost` + strconv.Itoa(number*2+2)},
+			},
+			PersistentVolumeReclaimPolicy: corev1.PersistentVolumeReclaimDelete,
+			NodeAffinity: &corev1.VolumeNodeAffinity{
+				Required: &corev1.NodeSelector{
+					NodeSelectorTerms: []corev1.NodeSelectorTerm{
+						{
+							MatchExpressions: []v1.NodeSelectorRequirement{
+								{
+									Key:      `kubernetes.io/hostname`,
+									Operator: corev1.NodeSelectorOpIn,
+									Values: []string{
+										"master-node",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	_, err = virtClient.CoreV1().PersistentVolumes().Create(pv1)
+	fmt.Println(err)
+
+	_, err = virtClient.CoreV1().PersistentVolumes().Create(pv2)
+	fmt.Println(err)
+}
+
+func deletePv(ip string, number int) {
+	// kubecli.DefaultClientConfig() prepares config using kubeconfig.
+	// typically, you need to set env variable, KUBECONFIG=<path-to-kubeconfig>/.kubeconfig
+	clientConfig := kubecli.DefaultClientConfig(&pflag.FlagSet{})
+
+	// get the kubevirt client, using which kubevirt resources can be managed.
+	virtClient, err := kubecli.GetKubevirtClientFromClientConfig(clientConfig)
+	_ = virtClient.CoreV1().PersistentVolumes().Delete("pv-oss"+strconv.Itoa((number-1)*2+1), &metav1.DeleteOptions{})
+	_ = virtClient.CoreV1().PersistentVolumes().Delete("pv-oss"+strconv.Itoa((number-1)*2+2), &metav1.DeleteOptions{})
+
+	key, err := getKeyFile()
+	if err != nil {
+		panic(err)
+	}
+
+	//master node commands
+	client, session, err := connectToHost("centos", ip+`:22`, key)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	var b bytes.Buffer
+	session.Stdout = &b
+	commands := []string{
+		`sudo rm -r /pvc-data/ost` + strconv.Itoa((number-1)*2+1),
+		`sudo rm -r /pvc-data/ost` + strconv.Itoa((number-1)*2+2),
+	}
+	command := strings.Join(commands, "; ")
+	if err := session.Run(command); err != nil {
+		fmt.Println("Master pvc created error:" + err.Error())
+	}
+	client.Close()
+	session.Close()
+}
+
+func getFsSize() int {
+	key, err := getKeyFile()
+	if err != nil {
+		panic(err)
+	}
+
+	//master node commands
+	client, session, err := connectToHost("centos", clientIp+`:22`, key)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	var b bytes.Buffer
+	session.Stdout = &b
+	commands := []string{
+		`sudo df -h /lustrefs`,
+	}
+	command := strings.Join(commands, "; ")
+	if err := session.Run(command); err != nil {
+		fmt.Println("Master pvc created error:" + err.Error())
+	}
+	client.Close()
+	session.Close()
+
+	s := string(b.Bytes())
+	var usage int
+	var count int = 0
+	scanner := bufio.NewScanner(strings.NewReader(s))
+	for scanner.Scan() {
+		count++
+		if count == 2 {
+			usage, _ = strconv.Atoi(strings.Fields(scanner.Text())[4][0 : len(strings.Fields(scanner.Text())[4])-1])
+		}
+	}
+
+	return usage
 }
