@@ -93,6 +93,7 @@ The MVP is to set up Lustre and running on MOC with Kubernetes on multiple machi
 
 12/3/2020 **Demo 5**:
 - Finish implementing the decided memory sharing strategy for the Lustre nodes
+- Recording Link: https://drive.google.com/file/d/1WwMpveN9KRBUFQbEW7XfaKExLaZC-97g/view?usp=sharing
 
 ## Uncertainties/Questions
 - In the creation of Replicasets, what happens when the relevent Lustre pods fail and recover? Will they recover nicely? Will there be any metadata to consider in the recovery process or will everything just work? Will corruption occur?
