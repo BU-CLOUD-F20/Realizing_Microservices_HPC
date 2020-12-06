@@ -238,7 +238,7 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 		} else {
 			fmt.Println("Nothing to be done\n")
 		}
-		return reconcile.Result{Requeue: true, RequeueAfter: 60 * time.Second}, nil
+		return reconcile.Result{Requeue: true, RequeueAfter: 5 * 60 * time.Second}, nil
 	} else {
 		// scale up vms
 		if int32(len(numOfVms)) < podSet.Spec.Replicas {
