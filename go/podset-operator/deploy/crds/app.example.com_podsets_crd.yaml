@@ -4,10 +4,10 @@ metadata:
   name: podsets.app.example.com
 spec:
   additionalPrinterColumns:
-  - JSONPath: .spec.replicas
+  - JSONPath: .spec.oss
     name: Desired
     type: string
-  - JSONPath: .status.replicas
+  - JSONPath: .status.oss
     name: Current
     type: string
   group: app.example.com
@@ -38,11 +38,11 @@ spec:
         spec:
           description: PodSetSpec defines the desired state of PodSet
           properties:
-            replicas:
+            oss:
               format: int32
               type: integer
           required:
-          - replicas
+          - oss
           type: object
         status:
           description: PodSetStatus defines the observed state of PodSet
@@ -51,12 +51,12 @@ spec:
               items:
                 type: string
               type: array
-            replicas:
+            oss:
               format: int32
               type: integer
           required:
           - podNames
-          - replicas
+          - oss
           type: object
       type: object
   version: v1alpha1

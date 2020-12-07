@@ -8,8 +8,8 @@ import (
 // +k8s:openapi-gen=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced
-// +kubebuilder:printcolumn:name="Desired",type="string",JSONPath=`.spec.replicas`
-// +kubebuilder:printcolumn:name="Current",type="string",JSONPath=`.status.replicas`
+// +kubebuilder:printcolumn:name="Desired",type="string",JSONPath=`.spec.oss`
+// +kubebuilder:printcolumn:name="Current",type="string",JSONPath=`.status.oss`
 
 // PodSet is the Schema for the podsets API
 type PodSet struct {
@@ -21,14 +21,14 @@ type PodSet struct {
 
 // PodSetSpec defines the desired state of PodSet
 type PodSetSpec struct {
-	Replicas int32 `json:"replicas"`
+	Oss int32 `json:"oss"`
 }
 
 // +k8s:openapi-gen=true
 
 // PodSetStatus defines the observed state of PodSet
 type PodSetStatus struct {
-	Replicas int32    `json:"replicas"`
+	Oss      int32    `json:"oss"`
 	PodNames []string `json:"podNames"`
 }
 

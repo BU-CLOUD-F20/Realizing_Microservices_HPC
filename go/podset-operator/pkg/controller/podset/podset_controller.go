@@ -165,10 +165,10 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 		}
 	}
 	reqLogger.Info("Test", "All pods", numOfVms)
-	reqLogger.Info("Checking podset", "expected replicas", podSet.Spec.Replicas, "Pod.Names", existingPodNames)
+	reqLogger.Info("Checking podset", "expected oss", podSet.Spec.Oss, "Pod.Names", existingPodNames)
 	// Update the status if necessary
 	status := appv1alpha1.PodSetStatus{
-		Replicas: int32(len(existingPodNames)),
+		Oss:      int32(len(existingPodNames)),
 		PodNames: existingPodNames,
 	}
 	if !reflect.DeepEqual(podSet.Status, status) {
@@ -222,7 +222,7 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 	}
 	usage := getFsSize()
 
-	if podSet.Spec.Replicas == int32(-1) {
+	if podSet.Spec.Oss == int32(-1) {
 		if usage >= 75 {
 			fmt.Println("Time to scale up!\n")
 			createPv(nodes.Items[0].Status.Addresses[0].Address, int(len(numOfVms)))
@@ -241,14 +241,14 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 		return reconcile.Result{Requeue: true, RequeueAfter: 5 * 60 * time.Second}, nil
 	} else {
 		// scale up vms
-		if int32(len(numOfVms)) < podSet.Spec.Replicas {
+		if int32(len(numOfVms)) < podSet.Spec.Oss {
 			createPv(nodes.Items[0].Status.Addresses[0].Address, int(len(numOfVms)))
 			createPvc(int(len(numOfVms)))
 			enableOst(int(len(numOfVms)))
 			ossvm(`lustre-oss`+strconv.Itoa(int(len(numOfVms))), int(len(numOfVms)))
 		}
 		// scale down vms
-		if int32(len(numOfVms)) > podSet.Spec.Replicas {
+		if int32(len(numOfVms)) > podSet.Spec.Oss {
 			mergeOst(int(len(numOfVms)))
 			deleteTestvm(`lustre-oss` + strconv.Itoa(int(len(numOfVms))-1))
 			deletePvc(int(len(numOfVms)))
