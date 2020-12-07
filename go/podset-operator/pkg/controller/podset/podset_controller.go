@@ -249,10 +249,12 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 		}
 		// scale down vms
 		if int32(len(numOfVms)) > podSet.Spec.Oss {
-			mergeOst(int(len(numOfVms)))
-			deleteTestvm(`lustre-oss` + strconv.Itoa(int(len(numOfVms))-1))
-			deletePvc(int(len(numOfVms)))
-			deletePv(nodes.Items[0].Status.Addresses[0].Address, int(len(numOfVms)))
+			if int32(len(numOfVms)) != 1 {
+				mergeOst(int(len(numOfVms)))
+				deleteTestvm(`lustre-oss` + strconv.Itoa(int(len(numOfVms))-1))
+				deletePvc(int(len(numOfVms)))
+				deletePv(nodes.Items[0].Status.Addresses[0].Address, int(len(numOfVms)))
+			}
 		}
 		return reconcile.Result{Requeue: true}, nil
 	}
