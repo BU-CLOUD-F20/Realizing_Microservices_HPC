@@ -21,7 +21,10 @@ type PodSet struct {
 
 // PodSetSpec defines the desired state of PodSet
 type PodSetSpec struct {
-	Oss int32 `json:"oss"`
+	Oss    int32 `json:"oss"`
+	Low    int32 `json:"low"`
+	High   int32 `json:"high"`
+	Period int32 `json:"period"`
 }
 
 // +k8s:openapi-gen=true
@@ -29,6 +32,9 @@ type PodSetSpec struct {
 // PodSetStatus defines the observed state of PodSet
 type PodSetStatus struct {
 	Oss      int32    `json:"oss"`
+	Low      int32    `json:"low"`
+	High     int32    `json:"high"`
+	Period   int32    `json:"period"`
 	PodNames []string `json:"podNames"`
 }
 

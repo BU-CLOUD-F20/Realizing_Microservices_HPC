@@ -223,14 +223,14 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 	usage := getFsSize()
 
 	if podSet.Spec.Oss == int32(-1) {
-		if usage >= 75 {
+		if int32(usage) >= podSet.Spec.High {
 			fmt.Println("Time to scale up!\n")
 			createPv(nodes.Items[0].Status.Addresses[0].Address, int(len(numOfVms)))
 			createPvc(int(len(numOfVms)))
 			enableOst(int(len(numOfVms)))
 			ossvm(`lustre-oss`+strconv.Itoa(int(len(numOfVms))), int(len(numOfVms)))
-			return reconcile.Result{Requeue: true, RequeueAfter: 5 * 60 * time.Second}, nil
-		} else if (usage <= 20) && (int(len(numOfVms)) > 1) {
+			return reconcile.Result{Requeue: true, RequeueAfter: time.Duration(podSet.Spec.Period) * 60 * time.Second}, nil
+		} else if (int32(usage) <= podSet.Spec.Low) && (int(len(numOfVms)) > 1) {
 			fmt.Println("Time to scale down!\n")
 			mergeOst(int(len(numOfVms)))
 			deleteTestvm(`lustre-oss` + strconv.Itoa(int(len(numOfVms))-1))

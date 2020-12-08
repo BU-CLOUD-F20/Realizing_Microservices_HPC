@@ -10,6 +10,24 @@ spec:
   - JSONPath: .status.oss
     name: Current
     type: string
+  - JSONPath: .spec.low
+    name: Desired
+    type: string
+  - JSONPath: .status.low
+    name: Current
+    type: string
+  - JSONPath: .spec.high
+    name: Desired
+    type: string
+  - JSONPath: .status.high
+    name: Current
+    type: string
+  - JSONPath: .spec.period
+    name: Desired
+    type: string
+  - JSONPath: .status.period
+    name: Current
+    type: string
   group: app.example.com
   names:
     kind: PodSet
@@ -41,8 +59,20 @@ spec:
             oss:
               format: int32
               type: integer
+            low:
+              format: int32
+              type: integer
+            high:
+              format: int32
+              type: integer
+            period:
+              format: int32
+              type: integer
           required:
           - oss
+          - low
+          - high
+          - period
           type: object
         status:
           description: PodSetStatus defines the observed state of PodSet
@@ -54,9 +84,21 @@ spec:
             oss:
               format: int32
               type: integer
+            low:
+              format: int32
+              type: integer
+            high:
+              format: int32
+              type: integer
+            period:
+              format: int32
+              type: integer
           required:
           - podNames
           - oss
+          - low
+          - high
+          - period
           type: object
       type: object
   version: v1alpha1

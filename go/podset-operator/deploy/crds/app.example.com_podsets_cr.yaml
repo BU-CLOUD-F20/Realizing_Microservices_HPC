@@ -4,3 +4,6 @@ metadata:
   name: example-podset
 spec:
   oss: 3
+  period: 5
+  low: 20
+  high: 70
