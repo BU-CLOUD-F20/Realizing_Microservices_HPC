@@ -1,0 +1,24 @@
+version: "3"
+services:
+    freeflow-router:
+        image: freeflow/freeflow:tcp
+        volumes: 
+            - /freeflow:/freeflow
+        network_mode: "host"
+        entrypoint: /bin/bash /start.sh
+        environment: 
+            # replace this by the host ip addr
+            HOST_IP: 128.110.155.72
+            # replace this by the host ip addr and mask range
+            HOST_IP_PREFIX: 128.110.155.72/22
+        privileged: true
+
+    freeflow-client:
+        image: jwmeister/freeflowclient:v1
+        volumes: 
+            - /freeflow:/freeflow
+        entrypoint: /bin/bash
+        environment: 
+            VNET_PREFIX: 10.32.0.0/12
+            LD_PRELOAD: /freeflow/libfsocket.so
+        privileged: true
