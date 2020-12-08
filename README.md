@@ -13,6 +13,8 @@ Realizing Microservices and High Performance Computing
 
 ## Project Description
 
+If you are looking for our setup and installation guide please refer to our [wiki](https://github.com/BU-CLOUD-F20/Realizing_Microservices_HPC/wiki)
+
 ## 1. Vision and Goals Of The Project:
 This project has many different and equally intriguing aspects. It can be thought of as the continuation of [last year’s students group](https://github.com/BU-NU-CLOUD-F19/Cloud-Native_high-performance_computing/). The first aspect is the automation of running [Lustre](https://wiki.lustre.org/Main_Page) in [Kubernetes](https://kubernetes.io/docs/concepts/overview/what-is-kubernetes/). Lustre is an open-source, distributed parallel file system designed for scalability, high-performance, and high-availability. In order to achieve this we will create Golang reconciler operators that will monitor the cluster and automatically scale Lustre based on different events as additions/removals of available instances and will deal with nodes/processes crashes.
 
@@ -75,25 +77,29 @@ The MVP is to set up Lustre and running on MOC with Kubernetes on multiple machi
 10/1/2020 **Demo 1**: Setup single instance on MOC
 - Setup Kubernetes on single instance within a cluster on MOC
 - Setup multiple machines with Kubernetes in a single cluster
+- [Presentation Slides](https://docs.google.com/presentation/d/1xsrvLke7BzP0fwcLeNXoxypV0VTMDQ4Z09pFxI20h1k/edit?usp=sharing)
 
 10/15/2020 **Demo 2**: Multi-instance within MOC and Operator exploration
 - Set up 3 different instances each with Kubernetes running on the same cluster
 - Implement the first two GO operators running locally. We will firstly focus on the autodiscovery/autoscale-up operator and then on the auto-shrinking operator
 - Freeflow exploration for container communication based off shared memory between containers
+- [Presentation Slides](https://docs.google.com/presentation/d/1N8E9K6A5j0aStfo1TI90EsUdW1mSmEaEsNYjtL8DUkY/edit?usp=sharing)
 
 10/29/2020 **Demo 3**: Containers running Luster
 - Adjust the first two GO operators to work on a MOC machine running Kubernetes
 - Implement the third GO operator on health monitoring and respawning upon failure and deploy it on MOC
 - Demonstrate previous year’s project running within MOC setup
 - Exploration on feasibility of RDMA software simulation. Decision whether we will head this way or towards implementing memory sharing strategy for nodes and containers in the same MOC instance
+- [Presentation Slides](https://docs.google.com/presentation/d/1JdQ9nhD7wMcCpo6alCTd9HMv7L5i5N8FjsBArOI5HrQ/edit?usp=sharing)
 
 11/12/2020 **Demo 4**: Memory Sharing
 - Finalize integration of the GO operators with Kubernetes instances within MOC and demonstrate Lustre operators running
 - Start implementing the decided memory sharing strategy for the Lustre nodes
+- [Presentation Slides](https://docs.google.com/presentation/d/1XJaiVWt0yzxdirHhq4wOEkKupReflFRzEsjbFRZ4DJQ/edit?usp=sharing)
 
 12/3/2020 **Demo 5**:
 - Finish implementing the decided memory sharing strategy for the Lustre nodes
-- Recording Link: https://drive.google.com/file/d/1WwMpveN9KRBUFQbEW7XfaKExLaZC-97g/view?usp=sharing
+- [Presentation Recording Link](https://drive.google.com/file/d/1WwMpveN9KRBUFQbEW7XfaKExLaZC-97g/view?usp=sharing)
 
 ## Uncertainties/Questions
 - In the creation of Replicasets, what happens when the relevent Lustre pods fail and recover? Will they recover nicely? Will there be any metadata to consider in the recovery process or will everything just work? Will corruption occur?
