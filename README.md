@@ -13,8 +13,8 @@ Realizing Microservices and High Performance Computing
 
 ## Project Description
 
-If you are looking for our setup and installation guide please refer to our [wiki](https://github.com/BU-CLOUD-F20/Realizing_Microservices_HPC/wiki)  
-If you are looking for our final presentation please refer to this [link](https://drive.google.com/file/d/13ylRxuLhgj0Xi-OYEGBwtFshqN2ZTCCC/view?usp=sharing)
+If you are looking for our setup and installation guide for all the steps to reproduce the project, please refer to our [wiki](https://github.com/BU-CLOUD-F20/Realizing_Microservices_HPC/wiki)  
+If you are looking for our final presentation, please refer to this [link](https://drive.google.com/file/d/13ylRxuLhgj0Xi-OYEGBwtFshqN2ZTCCC/view?usp=sharing)
 
 ## 1. Vision and Goals Of The Project:
 This project has many different and equally intriguing aspects. It can be thought of as the continuation of [last year’s students group](https://github.com/BU-NU-CLOUD-F19/Cloud-Native_high-performance_computing/). The first aspect is the automation of running [Lustre](https://wiki.lustre.org/Main_Page) in [Kubernetes](https://kubernetes.io/docs/concepts/overview/what-is-kubernetes/). Lustre is an open-source, distributed parallel file system designed for scalability, high-performance, and high-availability. In order to achieve this we will create Golang reconciler operators that will monitor the cluster and automatically scale Lustre based on different events as additions/removals of available instances and will deal with nodes/processes crashes.
